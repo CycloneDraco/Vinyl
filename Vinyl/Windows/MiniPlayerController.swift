@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import os
 import SwiftUI
 
 /// The floating mini player: a spinning record (and tonearm) with the current
@@ -15,6 +16,7 @@ final class MiniPlayerController: NSObject {
         return showsTonearm ? (m + 0.255) / (2 * m) : 1
     }
 
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Vinyl", category: "MiniPlayer")
     private var panel: MiniPanel?
     private var host: RendererHost?
     private var controls: NSHostingView<MiniControlsView>?
@@ -78,7 +80,10 @@ final class MiniPlayerController: NSObject {
         let interaction = MiniInteractionView(frame: container.bounds)
         interaction.autoresizingMask = [.width, .height]
         interaction.onHoverChanged = { [weak self] inside in self?.setHovering(inside) }
-        interaction.onClick = { NowPlayingService.shared.send(.playPause) }
+        interaction.onClick = {
+            Self.log.notice("mini player record clicked")
+            NowPlayingService.shared.send(.playPause)
+        }
         interaction.onMoved = { [weak self] origin in self?.prefs.miniOrigin = origin }
         interaction.menuProvider = { [weak self] in self?.contextMenu() }
         container.addSubview(interaction)
@@ -293,7 +298,8 @@ final class MiniInteractionView: NSView {
         defer { grabOffset = nil }
         if dragged {
             if let window { onMoved?(window.frame.origin) }
-        } else if event.clickCount == 1 {
+        } else if event.clickCount <= 1 {
+            // (Synthetic clicks from accessibility tools can report 0.)
             onClick?()
         }
     }

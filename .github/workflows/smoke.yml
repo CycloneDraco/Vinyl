@@ -93,7 +93,9 @@ jobs:
         if: always()
         run: |
           log show --last 10m --style compact --predicate 'subsystem == "io.github.cyclonedraco.vinyl" OR process == "Vinyl"' > shots/system.log 2>&1 || true
-          tail -60 shots/system.log || true
+          echo "--- Vinyl's own log lines ---"
+          grep -E "io.github.cyclonedraco.vinyl" shots/system.log | grep -vE "CFPrefs|xpc" | tail -40 || true
+          grep -q "mini player record clicked" shots/system.log && echo "✅ mini player click received" || echo "⚠️ mini player click not seen in logs"
 
       - uses: actions/upload-artifact@v4
         if: always()

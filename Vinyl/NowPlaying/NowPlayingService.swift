@@ -101,8 +101,13 @@ final class NowPlayingService: ObservableObject {
     // MARK: Commands
 
     func send(_ command: PlayerCommand) {
+        log.notice("command \(String(describing: command), privacy: .public)")
         let source = activeSource ?? PlayerSource.allCases.first { isRunning($0) }
-        guard let source, let player = players[source] else { return }
+        guard let source, let player = players[source], player.isRunning else {
+            // Nothing running: pressing play opens your player and starts it.
+            if command == .playPause { launchAndPlay() }
+            return
+        }
         // Respond instantly: flip the state now, the player's notification confirms it.
         if command == .playPause, var snap = snapshots[source], snap.track != nil {
             snap.position = snap.position(at: Date())
@@ -113,7 +118,7 @@ final class NowPlayingService: ObservableObject {
         Task {
             do {
                 try await player.send(command)
-                if permissions[source] != .granted { permissions[source] = .granted }
+                permissions[source] = .granted
             } catch let error as AppleScriptRunner.ScriptError {
                 log.error("\(source.displayName) command failed: \(error.description, privacy: .public)")
                 if error.isPermissionDenied { permissions[source] = .denied }
@@ -122,6 +127,26 @@ final class NowPlayingService: ObservableObject {
             } catch {
                 log.error("command failed: \(error.localizedDescription, privacy: .public)")
             }
+        }
+    }
+
+    var canLaunchPlayer: Bool { PlayerSource.allCases.contains { isInstalled($0) } }
+
+    private func launchAndPlay() {
+        let order: [PlayerSource] = Preferences.shared.source == .appleMusic ? [.appleMusic, .spotify] : [.spotify, .appleMusic]
+        guard let source = order.first(where: { isInstalled($0) }),
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: source.bundleIdentifier)
+        else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = false
+        Task {
+            _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+            // Give the player a moment to finish launching before asking it to play.
+            for _ in 0..<10 where !isRunning(source) {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            _ = try? await AppleScriptRunner.shared.run("tell application id \"\(source.bundleIdentifier)\" to play")
         }
     }
 

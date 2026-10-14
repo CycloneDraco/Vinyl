@@ -12,8 +12,9 @@ guard args.count == 4, let x = Double(args[2]), let y = Double(args[3]) else {
 }
 let point = CGPoint(x: x, y: y)
 func post(_ type: CGEventType) {
-    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
-        .post(tap: .cghidEventTap)
+    let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
+    if type != .mouseMoved { event?.setIntegerValueField(.mouseEventClickState, value: 1) }
+    event?.post(tap: .cghidEventTap)
     usleep(60_000)
 }
 post(.mouseMoved)

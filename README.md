@@ -47,7 +47,7 @@ on your own wallpaper, with real shadows:
 
 ## Install
 
-1. Download `Vinyl.dmg` from the [latest release](https://github.com/CycloneDraco/Vinyl/releases). Or open a recent run of the [Build workflow](https://github.com/CycloneDraco/Vinyl/actions/workflows/build.yml) and download the **Vinyl** artifact.
+1. Download `Vinyl.dmg` from [Releases](https://github.com/CycloneDraco/Vinyl/releases). Until the first release is tagged, open the latest successful run of the [Build workflow](https://github.com/CycloneDraco/Vinyl/actions/workflows/build.yml) and download the **Vinyl** artifact, which contains `Vinyl.dmg` and `Vinyl.zip`. Downloading artifacts requires being signed in to GitHub.
 2. Drag **Vinyl** into **Applications**.
 3. Open it. Community builds aren't notarized by Apple, so the first time, **right-click Vinyl → Open → Open**. If macOS still says the app is damaged or can't be opened, run:
    ```sh
@@ -146,6 +146,13 @@ Demo mode plays the built-in records. Keys: **space** play/pause · **n** next �
 CI runs this on every push, so pull requests come with previews.
 
 Ideas welcome: new rooms, a cassette deck, more turntable models…
+
+## Continuous integration
+
+Every push runs two workflows:
+
+- **Build**: compiles a universal (Apple silicon + Intel) Release build with Xcode 16, checks the bundle, and uploads `Vinyl.dmg` and `Vinyl.zip`. Pushing a `v*` tag also attaches them to a GitHub Release.
+- **UI smoke test**: launches the real app on a macOS runner and posts Spotify's playback notifications for real tracks, which exercises the no-login artwork lookup. It then hovers over and clicks the mini player, and uploads screenshots of every scene as the `smoke-screens` artifact.
 
 ## Privacy
 

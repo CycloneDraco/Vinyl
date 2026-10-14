@@ -22,7 +22,7 @@ struct TransportControls: View {
 
     var body: some View {
         let playing = nowPlaying.now.state == .playing
-        let enabled = nowPlaying.now.track != nil || nowPlaying.hasRunningPlayer
+        let enabled = nowPlaying.now.track != nil || nowPlaying.hasRunningPlayer || nowPlaying.canLaunchPlayer
         HStack(spacing: spacing) {
             button("backward.fill", label: "Previous Track", scale: 0.8) { nowPlaying.send(.previous) }
             button(playing ? "pause.fill" : "play.fill", label: playing ? "Pause" : "Play", scale: 1.15) {
