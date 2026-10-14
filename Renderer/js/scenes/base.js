@@ -55,6 +55,7 @@ export class BaseScene {
     if (this.turntable) {
       const s = this.turntable.update(dt, player);
       if (s.armMoved) this.shadowsDirty = true;
+      this.animating = s.busy;
     }
   }
   snapToState(player) {

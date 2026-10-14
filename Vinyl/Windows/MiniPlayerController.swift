@@ -36,7 +36,7 @@ final class MiniPlayerController: NSObject {
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Vinyl", category: "MiniPlayer")
     private var panel: MiniPanel?
     private var host: RendererHost?
-    private var controls: NSHostingView<MiniControlsView>?
+    private var controls: MiniControlsHostingView<MiniControlsView>?
     private let hover = MiniHoverState()
     private let payload: () -> [String: Any]
     private let prefs = Preferences.shared
@@ -56,6 +56,7 @@ final class MiniPlayerController: NSObject {
             show()
             applyPreferences()
         } else if let panel {
+            endResize()
             NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: panel)
             panel.orderOut(nil)
             panel.close()
@@ -108,7 +109,7 @@ final class MiniPlayerController: NSObject {
         interaction.aspect = { [weak self] in self?.layout.aspect ?? 1 }
         container.addSubview(interaction)
 
-        let controls = FirstMouseHostingView(rootView: MiniControlsView(hover: hover))
+        let controls = MiniControlsHostingView(rootView: MiniControlsView(hover: hover))
         controls.alphaValue = 0
         container.addSubview(controls)
 
@@ -155,36 +156,55 @@ final class MiniPlayerController: NSObject {
     private var layout: Layout { Layout.of(prefs.miniStyle) }
 
     private func contentSize(height: Double? = nil) -> NSSize {
-        let h = height ?? prefs.miniHeight
-        return NSSize(width: (h * layout.aspect).rounded(), height: h.rounded())
+        let h = (height ?? prefs.miniHeight).rounded()
+        return NSSize(width: (h * layout.aspect).rounded(), height: h)
     }
 
     // MARK: Resizing
 
-    private var isResizing = false
+    private var isResizing: Bool { resizeAnchor != nil }
+    /// The screen point that stays put during the current resize gesture,
+    /// taken from the frame when the gesture started so rounding can't drift.
+    private var resizeAnchor: NSPoint?
+    /// Commits a resize whose end event never arrived (a pinch that finished
+    /// with the pointer outside the shrunken player, say).
+    private var resizeWatchdog: DispatchWorkItem?
 
     /// Live resize from the corner grip or a pinch. `anchor` is the point of
     /// the window (0…1 in each axis, from the bottom-left) that stays put.
     private func resize(toHeight height: Double, anchor: CGPoint) {
         guard let panel else { return }
-        isResizing = true
+        let old = panel.frame
+        let fixed = resizeAnchor ?? NSPoint(x: old.minX + old.width * anchor.x, y: old.minY + old.height * anchor.y)
+        resizeAnchor = fixed
         let range = Preferences.miniHeightRange
         let size = contentSize(height: min(max(height, range.lowerBound), range.upperBound))
-        let old = panel.frame
-        let fixed = NSPoint(x: old.minX + old.width * anchor.x, y: old.minY + old.height * anchor.y)
         let frame = NSRect(x: (fixed.x - size.width * anchor.x).rounded(),
                            y: (fixed.y - size.height * anchor.y).rounded(),
                            width: size.width, height: size.height)
-        panel.setFrame(frame, display: true, animate: false)
-        layoutControls()
+        if frame != old {
+            panel.setFrame(frame, display: true, animate: false)
+            layoutControls()
+        }
+        resizeWatchdog?.cancel()
+        let watchdog = DispatchWorkItem { [weak self] in self?.commitResize() }
+        resizeWatchdog = watchdog
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: watchdog)
     }
 
     private func commitResize() {
-        guard let panel, isResizing else { return }
-        isResizing = false
+        guard isResizing else { return }
+        endResize()
+        guard let panel else { return }
         prefs.miniHeight = Double(panel.frame.height)
         prefs.miniOrigin = panel.frame.origin
         clampToScreen()
+    }
+
+    private func endResize() {
+        resizeAnchor = nil
+        resizeWatchdog?.cancel()
+        resizeWatchdog = nil
     }
 
     private func defaultOrigin(for size: NSSize) -> NSPoint {
@@ -322,7 +342,8 @@ final class MiniInteractionView: NSView {
     private var tracking: NSTrackingArea?
     private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
     private var resizeStart: (mouse: NSPoint, height: CGFloat)?
-    private static let gripSize: CGFloat = 22
+    private var pinch: (height: CGFloat, scale: CGFloat)?
+    static let gripSize: CGFloat = 22
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -390,8 +411,19 @@ final class MiniInteractionView: NSView {
 
     override func magnify(with event: NSEvent) {
         guard let window else { return }
-        onResize?(Double(window.frame.height * (1 + event.magnification)), CGPoint(x: 0.5, y: 0.5))
-        if event.phase == .ended || event.phase == .cancelled { onResizeEnded?() }
+        if event.phase == .began || pinch == nil { pinch = (window.frame.height, 1) }
+        guard var gesture = pinch else { return }
+        // Accumulate the whole gesture so slow pinches and rounding add up,
+        // and stop at the size limits so pinching back responds at once.
+        let range = Preferences.miniHeightRange
+        gesture.scale = min(max(gesture.scale * (1 + event.magnification), CGFloat(range.lowerBound) / gesture.height),
+                            CGFloat(range.upperBound) / gesture.height)
+        pinch = gesture
+        onResize?(Double(gesture.height * gesture.scale), CGPoint(x: 0.5, y: 0.5))
+        if event.phase == .ended || event.phase == .cancelled {
+            pinch = nil
+            onResizeEnded?()
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -434,6 +466,8 @@ final class MiniInteractionView: NSView {
             resizeStart = nil
             onResizeEnded?()
             needsDisplay = true
+            // The player may have shrunk out from under the pointer.
+            if !inGrip(convert(event.locationInWindow, from: nil)) { NSCursor.arrow.set() }
             return
         }
         defer { grabOffset = nil }
@@ -452,8 +486,25 @@ final class MiniInteractionView: NSView {
 }
 
 /// Lets the first click on a control work even though the panel isn't key.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// The hover controls: clicks in the capsule's shadow padding, or on the
+/// resize grip underneath, fall through to the player.
+final class MiniControlsHostingView<Content: View>: FirstMouseHostingView<Content> {
+    /// Matches the `.padding(12)` around MiniControlsView's capsule.
+    private let shadowInset: CGFloat = 12
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let container = superview {
+            let grip = MiniInteractionView.gripSize
+            if point.x >= container.bounds.maxX - grip && point.y <= container.bounds.minY + grip { return nil }
+        }
+        let local = convert(point, from: superview)
+        guard bounds.insetBy(dx: shadowInset, dy: shadowInset).contains(local) else { return nil }
+        return super.hitTest(point)
+    }
 }
 
 /// NSMenuItem with a closure.

@@ -370,6 +370,8 @@ export function createTurntable(options = {}) {
   const innerGroove = LABEL_RADIUS + 0.012;
   const leadInYaw = yawForRadius(outerGroove);
   const grooveYaw = (s) => yawForRadius(lerp(outerGroove, innerGroove, clamp(s.progress || 0, 0, 1)));
+  // Sign of yaw travel as the stylus moves inward through the grooves.
+  const inward = Math.sign(yawForRadius(innerGroove) - leadInYaw) || -1;
   arm.yaw.rotation.y = restYaw;
 
   // Tonearm motion works like an automatic deck's cue mechanism: lift, swing
@@ -420,8 +422,9 @@ export function createTurntable(options = {}) {
       case 'down':
         if (dest === 'record') {
           const off = target - cue.yaw;
-          // A new track or a seek: cue over to the new groove.
-          if (Math.abs(off) > 0.05) cue.phase = 'lift';
+          // A new track or a seek: cue over to the new groove. A lowered
+          // stylus only ever moves inward, so any step back re-cues too.
+          if (Math.abs(off) > 0.05 || off * inward < -0.004) cue.phase = 'lift';
           else cue.yaw += off * (1 - Math.exp(-3 * dt)); // tracking inward
         }
         break;
@@ -433,32 +436,34 @@ export function createTurntable(options = {}) {
         }
         break;
       case 'swing': {
-        cue.to = target; // the groove keeps moving while we swing
+        // The groove creeps inward while we swing; a seek or skip re-aims
+        // from where the arm is instead of jumping.
+        if (Math.abs(target - cue.to) > 0.005) startSwing(target);
+        else cue.to = target;
         cue.t = Math.min(1, cue.t + dt / cue.dur);
         cue.yaw = lerp(cue.from, cue.to, ease(cue.t));
         if (cue.t >= 1) cue.phase = 'lower';
         break;
       }
       case 'lower':
+        if (Math.abs(target - cue.yaw) > 0.005) {
+          cue.phase = 'lift'; // the target moved: rise again and swing over
+          break;
+        }
         cue.yaw = target;
         cue.lift = Math.max(0, cue.lift - dt / LOWER_TIME);
         if (cue.lift <= 0) cue.phase = 'down';
         break;
     }
-    // Eased both ways, like a damped cue lever.
-    const shown = ease(cue.lift);
-    const before = arm.yaw.rotation.y;
-    const beforeLift = arm.pitch.rotation.z;
-    arm.yaw.rotation.y = cue.yaw;
-    arm.pitch.rotation.z = shown * LIFT_ANGLE;
-    if (liftScale) arm.yaw.scale.setScalar(1 + shown * liftScale);
-    return Math.abs(before - cue.yaw) > 0.0005 || Math.abs(beforeLift - arm.pitch.rotation.z) > 0.0005;
+    applyArm(); // eased both ways, like a damped cue lever
   }
 
   // ---- State -------------------------------------------------------------
   let angularVelocity = 0;
   let shadowClock = 0;
-  const state = { armMoved: true };
+  let shadowYaw = NaN; // arm pose at the last shadow refresh
+  let shadowPitch = NaN;
+  const state = { armMoved: true, busy: false };
 
   function setArt(tex, immediate = false) {
     const cur = labels[front];
@@ -508,13 +513,23 @@ export function createTurntable(options = {}) {
       if (cur.material.opacity >= 1) prev.visible = false;
     }
 
-    // Tonearm. While it's moving, refresh shadows at ~30 Hz; while tracking
-    // a song it creeps so slowly that twice a second is plenty.
-    const moved = updateArm(dt, s);
+    // Tonearm. While it's cueing, refresh shadows at ~30 Hz; while tracking
+    // a song it creeps so slowly that twice a second is plenty. Compare with
+    // the pose at the last refresh so the slow creep still adds up.
+    updateArm(dt, s);
     shadowClock += dt;
     const interval = cue.phase === 'down' ? 0.5 : 1 / 30;
+    const moved = !(
+      Math.abs(arm.yaw.rotation.y - shadowYaw) <= 0.0005 && Math.abs(arm.pitch.rotation.z - shadowPitch) <= 0.0005
+    );
     state.armMoved = moved && shadowClock >= interval;
-    if (state.armMoved) shadowClock = 0;
+    if (state.armMoved) {
+      shadowClock = 0;
+      shadowYaw = arm.yaw.rotation.y;
+      shadowPitch = arm.pitch.rotation.z;
+    }
+    // Still animating while paused: the arm returning, the platter coasting.
+    state.busy = cue.phase !== 'down' || (!s.playing && angularVelocity > 0.05);
     return state;
   }
 
@@ -537,6 +552,7 @@ export function createTurntable(options = {}) {
     setNameplate,
     update,
     snapArm,
+    arm, // .yaw / .pitch pivots (read by tests)
     dims: { width: W, depth: D, topY, recordTop: platterY + recordTop, platterCenter, pivot, leadInYaw },
     materials: mats,
   };

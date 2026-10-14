@@ -5,6 +5,7 @@
 //   1-4    scenes              - / =  smaller / larger
 //   b      toggle background   l  label / picture disc   a  mini: deck / record only
 import { builtInCovers } from './textures.js';
+import { miniStyle } from './scenes/mini.js';
 
 const SCENES = ['listening-room', 'after-hours', 'turntable', 'mini'];
 
@@ -54,7 +55,7 @@ export function startDemo(update, config, scene) {
     } else if (k === 'l') {
       update({ labelStyle: config.labelStyle === 'picture' ? 'label' : 'picture' });
     } else if (k === 'a') {
-      update({ miniStyle: scene()?.style === 'record' ? 'turntable' : 'record' });
+      update({ miniStyle: miniStyle(config) === 'record' ? 'turntable' : 'record' });
     } else if (k === 's') {
       update({ track: null, playing: false });
     }

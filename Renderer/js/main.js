@@ -260,8 +260,9 @@ function frame(now) {
   if (config.paused || document.hidden) return;
   rafId = requestAnimationFrame(frame);
   const s = playerSnapshot();
-  // Nothing spinning → a low frame rate is enough for fades and light sway.
-  const fps = s.playing ? config.fps : Math.min(config.fps, 20);
+  // Nothing spinning and the arm at rest → a low frame rate is enough for
+  // fades and light sway.
+  const fps = s.playing || current.animating ? config.fps : Math.min(config.fps, 20);
   if (now - lastFrame < 1000 / fps - 2) return;
   lastFrame = now;
   const dt = Math.min(0.1, (now - last) / 1000);
