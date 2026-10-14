@@ -63,12 +63,14 @@ jobs:
           sleep 5
           ./post-spotify 3n3Ppam7vgaVa1iaRUc9Lp "Mr. Brightside" "The Killers" "Hot Fuss"
           sleep 6
-          read W H < <(system_profiler SPDisplaysDataType | awk '/Resolution/ {print $2, $4; exit}')
-          W=${W:-1024}; H=${H:-768}
-          echo "display $W x $H"
           ./mouse move 200 200
           sleep 1
           screencapture -x shots/mini-idle.png
+          # Screen size in points (screencapture writes 1 px per point here).
+          W=$(sips -g pixelWidth shots/mini-idle.png | awk '/pixelWidth/ {print $2}')
+          H=$(sips -g pixelHeight shots/mini-idle.png | awk '/pixelHeight/ {print $2}')
+          W=${W:-1024}; H=${H:-768}
+          echo "display $W x $H"
           # Record centre, from the panel's default placement (see MiniPlayerController).
           python3 - "$W" "$H" > coords.txt <<'PY'
           import sys, subprocess
