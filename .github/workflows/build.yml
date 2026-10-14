@@ -1,0 +1,88 @@
+name: Build
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    name: macOS app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Vinyl.xcodeproj \
+            -scheme Vinyl \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination "generic/platform=macOS" \
+            CODE_SIGN_IDENTITY=- \
+            ONLY_ACTIVE_ARCH=NO \
+            build 2>&1 | tee build.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release/Vinyl.app
+
+      - name: Show build errors
+        if: failure()
+        run: grep -n -B2 -A6 "error:" build.log | head -200 || tail -100 build.log
+
+      - name: Check bundle
+        run: |
+          APP=build/Build/Products/Release/Vinyl.app
+          codesign --verify --deep --strict "$APP"
+          plutil -p "$APP/Contents/Info.plist" | grep -E "LSUIElement|NSAppleEvents|CFBundleIdentifier|LSMinimumSystemVersion"
+          test -f "$APP/Contents/Resources/Renderer/index.html"
+          test -f "$APP/Contents/Resources/Renderer/vendor/three/three.module.min.js"
+          lipo -archs "$APP/Contents/MacOS/Vinyl"
+
+      - name: Package
+        run: |
+          APP=build/Build/Products/Release/Vinyl.app
+          mkdir -p dist/dmg
+          ditto -c -k --keepParent "$APP" dist/Vinyl.zip
+          cp -R "$APP" dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create -volname Vinyl -srcfolder dist/dmg -ov -format UDZO dist/Vinyl.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vinyl
+          path: |
+            dist/Vinyl.zip
+            dist/Vinyl.dmg
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Vinyl.zip
+            dist/Vinyl.dmg
+
+  renderer:
+    name: Renderer previews
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci || npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm run snapshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renderer-previews
+          path: snapshots/

@@ -1,0 +1,15 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Packaging
+dist/
+
+# Renderer tooling
+node_modules/
+snapshots/
+
+.DS_Store
