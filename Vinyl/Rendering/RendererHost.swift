@@ -56,9 +56,9 @@ final class RendererHost: NSObject, WKNavigationDelegate, WKScriptMessageHandler
         components.host = "app"
         components.path = "/index.html"
         // Initial options ride along in the URL so the very first frame is right.
-        let keys = ["scene", "framing", "labelStyle", "fps", "quality"]
+        let keys = ["scene", "size", "miniStyle", "labelStyle", "fps", "quality"]
         var items = keys.compactMap { key in (latest[key]).map { URLQueryItem(name: key == "labelStyle" ? "label" : key, value: "\($0)") } }
-        for key in ["background", "tonearm", "idleSpin", "motion"] {
+        for key in ["background", "idleSpin", "motion"] {
             if let flag = latest[key] as? Bool { items.append(URLQueryItem(name: key, value: flag ? "1" : "0")) }
         }
         components.queryItems = items

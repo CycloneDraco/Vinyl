@@ -32,6 +32,23 @@ export class BaseScene {
   }
   setOption(key, value) {
     this.options[key] = value;
+    if (key === 'size') {
+      this.layout();
+      this.shadowsDirty = true;
+    }
+  }
+
+  // Continuous size, 0 (smallest) … 1 (largest). Falls back to the old
+  // Wide / Mid / Close framing presets when no size is given.
+  get size() {
+    const { size, framing } = this.options;
+    if (size !== null && size !== undefined && size !== '' && Number.isFinite(Number(size))) {
+      return Math.min(1, Math.max(0, Number(size)));
+    }
+    return this.framingSizes[framing] ?? this.framingSizes.wide;
+  }
+  get framingSizes() {
+    return { wide: 0, mid: 0.5, close: 1 };
   }
   layout() {}
   update(dt, time, player) {

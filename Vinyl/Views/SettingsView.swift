@@ -70,10 +70,13 @@ struct SettingsView: View {
             }
 
             Section("Desktop") {
-                Picker("Framing", selection: $prefs.framing) {
-                    ForEach(Framing.allCases) { Text($0.title).tag($0) }
+                VStack(alignment: .leading, spacing: 3) {
+                    SizeSlider(value: $prefs.desktopSize, in: 0...1)
+                    Text(prefs.scene == .turntable
+                         ? "How big the turntable sits on your desktop."
+                         : "Zoom from the whole desk in to the turntable.")
+                        .settingsFootnote()
                 }
-                .pickerStyle(.segmented)
                 VStack(alignment: .leading, spacing: 3) {
                     Toggle("Room background", isOn: $prefs.showBackground)
                     Text("Turn off to put the turntable straight onto your own wallpaper.")
@@ -90,15 +93,19 @@ struct SettingsView: View {
                 if prefs.scene.isDesktopScene {
                     Toggle("Also show the mini player", isOn: $prefs.miniAlongside)
                 }
+                Picker("Style", selection: $prefs.miniStyle) {
+                    ForEach(MiniStyle.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
                 Picker("Record", selection: $prefs.miniLabelStyle) {
                     ForEach(LabelStyle.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Picker("Size", selection: $prefs.miniSize) {
-                    ForEach(MiniSize.allCases) { Text($0.title).tag($0) }
+                VStack(alignment: .leading, spacing: 3) {
+                    SizeSlider(value: $prefs.miniHeight, in: Preferences.miniHeightRange)
+                    Text("You can also drag the player's bottom-right corner, or pinch on it.")
+                        .settingsFootnote()
                 }
-                .pickerStyle(.segmented)
-                Toggle("Tonearm", isOn: $prefs.miniShowsTonearm)
                 Toggle("Keep on top of other windows", isOn: $prefs.miniFloats)
                 Toggle("Show on every Space", isOn: $prefs.miniOnAllSpaces)
             }
@@ -285,6 +292,27 @@ private struct SourceRow: View {
         case .denied: return "Allow Vinyl under Automation"
         case .notRunning: return "Connect to allow controls"
         default: return "Track changes work already"
+        }
+    }
+}
+
+/// "Size" slider with Small / Large end labels, like the Dock size in System Settings.
+private struct SizeSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    init(value: Binding<Double>, in range: ClosedRange<Double>) {
+        _value = value
+        self.range = range
+    }
+
+    var body: some View {
+        Slider(value: $value, in: range) {
+            Text("Size")
+        } minimumValueLabel: {
+            Text("Small").font(.system(size: 11)).foregroundStyle(.secondary)
+        } maximumValueLabel: {
+            Text("Large").font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 }

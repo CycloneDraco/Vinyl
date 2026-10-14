@@ -40,22 +40,23 @@ struct MenuBarView: View {
 
             if prefs.scene.isDesktopScene {
                 VStack(spacing: 10) {
-                    Picker("Framing", selection: $prefs.framing) {
-                        ForEach(Framing.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    sizeRow($prefs.desktopSize, in: 0...1)
                     row("Room background", isOn: $prefs.showBackground)
                     row("Mini player too", isOn: $prefs.miniAlongside)
                 }
             } else {
                 VStack(spacing: 10) {
+                    Picker("Style", selection: $prefs.miniStyle) {
+                        ForEach(MiniStyle.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                     Picker("Record", selection: $prefs.miniLabelStyle) {
                         ForEach(LabelStyle.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    row("Tonearm", isOn: $prefs.miniShowsTonearm)
+                    sizeRow($prefs.miniHeight, in: Preferences.miniHeightRange)
                     row("Keep on top", isOn: $prefs.miniFloats)
                 }
             }
@@ -78,6 +79,15 @@ struct MenuBarView: View {
         .padding(14)
         .frame(width: 330)
         .animation(.spring(response: 0.3, dampingFraction: 1), value: prefs.scene.isDesktopScene)
+    }
+
+    private func sizeRow(_ value: Binding<Double>, in range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 10) {
+            Text("Size").font(.system(size: 12))
+            Slider(value: value, in: range)
+                .controlSize(.small)
+                .accessibilityLabel("Size")
+        }
     }
 
     private func row(_ title: String, isOn: Binding<Bool>) -> some View {

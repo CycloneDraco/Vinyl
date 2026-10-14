@@ -1,7 +1,7 @@
 // A parametric turntable: plinth, platter, record, label art, and a tonearm
 // that cues onto the record and tracks inward with song progress.
 import * as THREE from 'three';
-import { Spring, clamp, lerp, TAU } from '../util.js';
+import { clamp, lerp, TAU } from '../util.js';
 import {
   recordTextures,
   pictureDiscOverlay,
@@ -166,10 +166,11 @@ export function createTurntable(options = {}) {
     plinth.add(nameplate);
     // Knob + power light on the top plate
     const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.012, 0.012, 32), mats.brass);
-    knob.position.set(0.17, topY + 0.006, 0.125);
+    // Knob and power light sit left of the arm rest so the parked arm clears them.
+    knob.position.set(0.105, topY + 0.006, 0.135);
     plinth.add(shadowed(knob));
     const led = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.002, 16), mats.black);
-    led.position.set(0.128, topY + 0.001, 0.128);
+    led.position.set(0.075, topY + 0.001, 0.138);
     plinth.add(led);
   } else if (style === 'silver') {
     W = 0.46;
@@ -187,10 +188,10 @@ export function createTurntable(options = {}) {
     plinth.add(well);
     // Big bronze speed knob, bottom right
     const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.028, 0.018, 48), mats.bronze);
-    knob.position.set(0.172, topY + 0.009, 0.135);
+    knob.position.set(0.098, topY + 0.009, 0.15);
     plinth.add(shadowed(knob));
     const knobCap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 0.006, 48), mats.bronze);
-    knobCap.position.set(0.172, topY + 0.021, 0.135);
+    knobCap.position.set(0.098, topY + 0.021, 0.15);
     plinth.add(shadowed(knobCap));
     // Badge, bottom left
     nameplate = new THREE.Mesh(
@@ -328,9 +329,6 @@ export function createTurntable(options = {}) {
   arm.yaw.position.set(pivot.x, armHeight, pivot.z);
   arm.setPostHeight(armHeight - topY);
   group.add(arm.base, arm.yaw);
-  arm.rest.position.set(pivot.x + 0.018, topY, pivot.z + 0.165);
-  arm.rest.scale.y = (armHeight - topY) / 0.04;
-  if (style !== 'none') group.add(arm.rest);
 
   // Precompute yaw for a given stylus radius.
   const stylusLocal = arm.stylusLocal; // in yaw-group local space (x,z)
@@ -342,8 +340,13 @@ export function createTurntable(options = {}) {
     const z = pivot.z - stylusLocal.x * s + stylusLocal.z * c;
     return Math.hypot(x - centerXZ.x, z - centerXZ.y);
   };
-  // Rest: arm parallel to the plinth's right edge, pointing to the front.
-  const restYaw = -Math.PI / 2 + 0.05;
+  // Rest: arm parallel to the plinth's right edge, pointing to the front and
+  // angled a touch inward so the headshell stays over the plinth.
+  const restYaw = -Math.PI / 2 - 0.04;
+  // The rest clip sits under the tube, 16.5 cm from the pivot.
+  arm.rest.position.set(pivot.x + Math.cos(restYaw) * 0.165, topY, pivot.z - Math.sin(restYaw) * 0.165);
+  arm.rest.scale.y = (armHeight - topY) / 0.04;
+  if (style !== 'none') group.add(arm.rest);
   const table = [];
   {
     // Sweep toward the record and record the radius at each yaw.
@@ -366,14 +369,95 @@ export function createTurntable(options = {}) {
   const outerGroove = RECORD_RADIUS - 0.006;
   const innerGroove = LABEL_RADIUS + 0.012;
   const leadInYaw = yawForRadius(outerGroove);
-  const armYaw = new Spring(restYaw, 1.6);
-  const armLift = new Spring(1, 0.5);
+  const grooveYaw = (s) => yawForRadius(lerp(outerGroove, innerGroove, clamp(s.progress || 0, 0, 1)));
   arm.yaw.rotation.y = restYaw;
+
+  // Tonearm motion works like an automatic deck's cue mechanism: lift, swing
+  // across, lower. Every phase can be interrupted and redirected, starting
+  // from wherever the arm currently is.
+  const LIFT_ANGLE = 0.11; // ~6°: the headshell rises a couple of centimetres
+  const LIFT_TIME = 0.34;
+  const LOWER_TIME = 0.55;
+  const SWING_SPEED = 0.55; // rad/s, unhurried like a real auto-return
+  const liftScale = options.liftScale ?? 0; // top-down views: lifting reads as "closer"
+  const cue = {
+    phase: 'down', // 'down' | 'lift' | 'swing' | 'lower'
+    at: 'rest', // where the arm is (or is heading): 'rest' | 'record'
+    yaw: restYaw,
+    lift: 0, // 0 = resting on the record or the arm rest, 1 = fully raised
+    from: restYaw,
+    to: restYaw,
+    t: 0,
+    dur: 1,
+  };
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+  function applyArm() {
+    const shown = ease(cue.lift);
+    arm.yaw.rotation.y = cue.yaw;
+    arm.pitch.rotation.z = shown * LIFT_ANGLE;
+    if (liftScale) arm.yaw.scale.setScalar(1 + shown * liftScale);
+  }
+
+  function startSwing(target) {
+    cue.phase = 'swing';
+    cue.from = cue.yaw;
+    cue.to = target;
+    cue.t = 0;
+    cue.dur = Math.max(0.6, Math.abs(target - cue.yaw) / SWING_SPEED);
+  }
+
+  function updateArm(dt, s) {
+    const dest = s.hasTrack && s.playing ? 'record' : 'rest';
+    const target = dest === 'record' ? grooveYaw(s) : restYaw;
+    // Redirect if the destination changed mid-move.
+    if (dest !== cue.at) {
+      cue.at = dest;
+      if (cue.phase === 'down' || cue.phase === 'lower') cue.phase = 'lift';
+      else if (cue.phase === 'swing') startSwing(target);
+    }
+    switch (cue.phase) {
+      case 'down':
+        if (dest === 'record') {
+          const off = target - cue.yaw;
+          // A new track or a seek: cue over to the new groove.
+          if (Math.abs(off) > 0.05) cue.phase = 'lift';
+          else cue.yaw += off * (1 - Math.exp(-3 * dt)); // tracking inward
+        }
+        break;
+      case 'lift':
+        cue.lift = Math.min(1, cue.lift + dt / LIFT_TIME);
+        if (cue.lift >= 1) {
+          if (Math.abs(target - cue.yaw) < 0.002) cue.phase = 'lower';
+          else startSwing(target);
+        }
+        break;
+      case 'swing': {
+        cue.to = target; // the groove keeps moving while we swing
+        cue.t = Math.min(1, cue.t + dt / cue.dur);
+        cue.yaw = lerp(cue.from, cue.to, ease(cue.t));
+        if (cue.t >= 1) cue.phase = 'lower';
+        break;
+      }
+      case 'lower':
+        cue.yaw = target;
+        cue.lift = Math.max(0, cue.lift - dt / LOWER_TIME);
+        if (cue.lift <= 0) cue.phase = 'down';
+        break;
+    }
+    // Eased both ways, like a damped cue lever.
+    const shown = ease(cue.lift);
+    const before = arm.yaw.rotation.y;
+    const beforeLift = arm.pitch.rotation.z;
+    arm.yaw.rotation.y = cue.yaw;
+    arm.pitch.rotation.z = shown * LIFT_ANGLE;
+    if (liftScale) arm.yaw.scale.setScalar(1 + shown * liftScale);
+    return Math.abs(before - cue.yaw) > 0.0005 || Math.abs(beforeLift - arm.pitch.rotation.z) > 0.0005;
+  }
 
   // ---- State -------------------------------------------------------------
   let angularVelocity = 0;
-  let lastArmYaw = restYaw;
-  let lastArmLift = 1;
+  let shadowClock = 0;
   const state = { armMoved: true };
 
   function setArt(tex, immediate = false) {
@@ -424,41 +508,24 @@ export function createTurntable(options = {}) {
       if (cur.material.opacity >= 1) prev.visible = false;
     }
 
-    // Tonearm
-    if (s.hasTrack && (s.playing || s.cued)) {
-      const r = lerp(outerGroove, innerGroove, clamp(s.progress || 0, 0, 1));
-      armYaw.target = yawForRadius(r);
-    } else {
-      armYaw.target = restYaw;
-    }
-    const nearTarget = Math.abs(armYaw.value - armYaw.target) < 0.01;
-    armLift.target = s.playing && nearTarget && armYaw.target !== restYaw ? 0 : 1;
-    if (!s.playing && nearTarget && armYaw.target === restYaw) armLift.target = 0;
-    // Arm only swings while lifted, like a real cue lever.
-    if (armLift.value > 0.8 || nearTarget) armYaw.update(dt);
-    armLift.update(dt);
-    arm.yaw.rotation.y = armYaw.value;
-    arm.pitch.rotation.z = armLift.value * 0.045;
-
-    state.armMoved =
-      Math.abs(armYaw.value - lastArmYaw) > 0.002 || Math.abs(armLift.value - lastArmLift) > 0.02;
-    if (state.armMoved) {
-      lastArmYaw = armYaw.value;
-      lastArmLift = armLift.value;
-    }
+    // Tonearm. While it's moving, refresh shadows at ~30 Hz; while tracking
+    // a song it creeps so slowly that twice a second is plenty.
+    const moved = updateArm(dt, s);
+    shadowClock += dt;
+    const interval = cue.phase === 'down' ? 0.5 : 1 / 30;
+    state.armMoved = moved && shadowClock >= interval;
+    if (state.armMoved) shadowClock = 0;
     return state;
   }
 
+  // Jump straight to the resting pose for `s` (used when a scene is built).
   function snapArm(s) {
-    if (s.hasTrack && (s.playing || s.cued)) {
-      armYaw.snap(yawForRadius(lerp(outerGroove, innerGroove, clamp(s.progress || 0, 0, 1))));
-      armLift.snap(s.playing ? 0 : 1);
-    } else {
-      armYaw.snap(restYaw);
-      armLift.snap(0);
-    }
-    arm.yaw.rotation.y = armYaw.value;
-    arm.pitch.rotation.z = armLift.value * 0.045;
+    const onRecord = s.hasTrack && s.playing;
+    cue.at = onRecord ? 'record' : 'rest';
+    cue.phase = 'down';
+    cue.yaw = onRecord ? grooveYaw(s) : restYaw;
+    cue.lift = 0;
+    applyArm();
     if (s.playing) angularVelocity = OMEGA;
   }
 

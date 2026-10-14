@@ -7,8 +7,9 @@ import { createSleeve, contactPlane, SLEEVE } from '../models/props.js';
 import { blindsGobo } from '../textures.js';
 import { texture } from '../assets.js';
 
-// Fraction of the screen width the deck + sleeve should occupy.
-const FRAMINGS = { wide: 0.5, mid: 0.66, close: 0.84 };
+// Fraction of the screen width the deck + sleeve occupy at size 0 … 1.
+const MIN_FRACTION = 0.28;
+const MAX_FRACTION = 0.88;
 const CONTENT_W = 0.46 + SLEEVE - 0.03;
 const CONTENT_D = 0.4;
 
@@ -102,9 +103,14 @@ export class TopDownScene extends BaseScene {
     this.sleeve.setArt(tex, immediate);
   }
 
+  // The 1.0 presets filled 50 / 66 / 84 % of the width.
+  get framingSizes() {
+    return { wide: 0.37, mid: 0.63, close: 0.93 };
+  }
+
   layout() {
     const aspect = this.width / this.height || 16 / 10;
-    const fraction = FRAMINGS[this.options.framing] || FRAMINGS.wide;
+    const fraction = MIN_FRACTION + (MAX_FRACTION - MIN_FRACTION) * this.size;
     // Visible width at desk level so the content takes `fraction` of it,
     // but never let the content overflow vertically.
     let visibleW = CONTENT_W / fraction;

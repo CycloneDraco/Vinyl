@@ -50,10 +50,12 @@ jobs:
             sleep 1
           }
           run_scene listening-room listening-room true ""
-          run_scene after-hours after-hours true "defaults write $ID framing -string mid"
+          run_scene after-hours after-hours true "defaults write $ID sceneSizes -dict after-hours 0.5"
           run_scene turntable turntable true ""
           run_scene transparent listening-room true "defaults write $ID showBackground -bool false"
           run_scene mini mini false ""
+          run_scene mini-record mini true "defaults write $ID miniStyle -string record; defaults write $ID miniHeight -float 180"
+          run_scene turntable-large turntable true "defaults write $ID sceneSizes -dict turntable 1"
 
           # Mini player interaction: hover shows the controls, a click on the
           # record pauses it. The panel sits bottom-right of the main display.
@@ -75,8 +77,9 @@ jobs:
           python3 - "$W" "$H" > coords.txt <<'PY'
           import sys, subprocess
           w, h = float(sys.argv[1]), float(sys.argv[2])
-          ph = 260; pw = round(ph * (0.162 + 0.255) / 0.324)
-          print(round(w - 32 - pw + pw * 0.388), round(h - 32 - 80 - ph / 2))
+          # Default: the turntable style, 280 pt tall, record centred vertically.
+          ph = 280; pw = round(ph * 0.51 / 0.45)
+          print(round(w - 32 - pw + pw * 0.215 / 0.51), round(h - 32 - 80 - ph / 2))
           PY
           read MX MY < coords.txt
           echo "record at $MX,$MY"

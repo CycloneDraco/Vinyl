@@ -16,6 +16,19 @@ const FRAMINGS = {
   close: { focus: [-0.03, 0.08, -0.06], span: 0.64, elevation: 30, screenY: 0.55, k: 1.35 },
 };
 
+// Blend the presets: size 0 = wide, 0.5 = mid, 1 = close.
+function framingAt(size) {
+  const [a, b, t] = size <= 0.5 ? [FRAMINGS.wide, FRAMINGS.mid, size / 0.5] : [FRAMINGS.mid, FRAMINGS.close, (size - 0.5) / 0.5];
+  const mix = (x, y) => x + (y - x) * t;
+  return {
+    focus: a.focus.map((v, i) => mix(v, b.focus[i])),
+    span: Math.exp(mix(Math.log(a.span), Math.log(b.span))), // zoom feels linear in log space
+    elevation: mix(a.elevation, b.elevation),
+    screenY: mix(a.screenY, b.screenY),
+    k: mix(a.k, b.k),
+  };
+}
+
 const VARIANTS = {
   'listening-room': {
     wall: 0xf0e2cc,
@@ -202,7 +215,7 @@ export class RoomScene extends BaseScene {
   }
 
   layout() {
-    const f = FRAMINGS[this.options.framing] || FRAMINGS.wide;
+    const f = framingAt(this.size);
     const aspect = this.width / this.height || 16 / 10;
     let span = f.span;
     // On narrow/portrait screens make sure the turntable still fits.

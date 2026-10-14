@@ -29,6 +29,8 @@ const q = new URLSearchParams(location.search);
 const config = {
   scene: q.get('scene') || 'listening-room',
   framing: q.get('framing') || 'wide',
+  size: q.has('size') ? Number(q.get('size')) : null,
+  miniStyle: q.get('miniStyle') || null,
   background: q.get('background') !== '0',
   labelStyle: q.get('label') || 'label',
   tonearm: q.get('tonearm') !== '0',
@@ -47,7 +49,7 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   alpha: true,
   premultipliedAlpha: true,
-  preserveDrawingBuffer: snapshot,
+  preserveDrawingBuffer: snapshot || q.has('preserve'), // ?preserve: lets tools read frames
   powerPreference: 'default',
 });
 renderer.setClearColor(0x000000, 0);
@@ -163,7 +165,7 @@ async function applyArt(immediate = false) {
 // ---------------------------------------------------------------------------
 // Public bridge
 const SCENE_KEYS = ['scene'];
-const OPTION_KEYS = ['framing', 'background', 'labelStyle', 'tonearm', 'motion', 'idleSpin'];
+const OPTION_KEYS = ['framing', 'size', 'background', 'labelStyle', 'tonearm', 'miniStyle', 'motion', 'idleSpin'];
 
 function update(patch = {}) {
   let rebuild = false;
@@ -290,7 +292,7 @@ if (snapshot) {
   runSnapshot();
 } else {
   wake();
-  if (demo) import('./demo.js').then((m) => m.startDemo(update, config));
+  if (demo) import('./demo.js').then((m) => m.startDemo(update, config, () => current));
 }
 
 // Deterministic single frame for automated previews (tools/snapshot.mjs).

@@ -2,12 +2,11 @@
 // so the renderer can be developed without the Mac app.
 //
 //   space  play / pause        n  next track
-//   1-4    scenes              f  cycle framing
-//   b      toggle background   l  label / picture disc   a  tonearm
+//   1-4    scenes              - / =  smaller / larger
+//   b      toggle background   l  label / picture disc   a  mini: deck / record only
 import { builtInCovers } from './textures.js';
 
 const SCENES = ['listening-room', 'after-hours', 'turntable', 'mini'];
-const FRAMINGS = ['wide', 'mid', 'close'];
 
 const tracks = builtInCovers.map((c, i) => ({
   id: c.id,
@@ -32,7 +31,7 @@ function recentFor(index) {
   return list;
 }
 
-export function startDemo(update, config) {
+export function startDemo(update, config, scene) {
   let index = 0;
   let playing = true;
   update({ track: trackPatch(index), recent: recentFor(index), playing, position: 20 });
@@ -47,14 +46,15 @@ export function startDemo(update, config) {
       playing = true;
     } else if (k >= '1' && k <= '4') {
       update({ scene: SCENES[Number(k) - 1] });
-    } else if (k === 'f') {
-      update({ framing: FRAMINGS[(FRAMINGS.indexOf(config.framing) + 1) % FRAMINGS.length] });
+    } else if (k === '-' || k === '=' || k === '+') {
+      const size = scene()?.size ?? 0;
+      update({ size: Math.round(Math.min(1, Math.max(0, size + (k === '-' ? -0.1 : 0.1))) * 10) / 10 });
     } else if (k === 'b') {
       update({ background: !config.background });
     } else if (k === 'l') {
       update({ labelStyle: config.labelStyle === 'picture' ? 'label' : 'picture' });
     } else if (k === 'a') {
-      update({ tonearm: !config.tonearm });
+      update({ miniStyle: scene()?.style === 'record' ? 'turntable' : 'record' });
     } else if (k === 's') {
       update({ track: null, playing: false });
     }

@@ -49,12 +49,17 @@ enum VinylScene: String, CaseIterable, Identifiable {
     }
 
     var isDesktopScene: Bool { self != .miniPlayer }
+
+    /// Starting size (0 = smallest, 1 = largest): rooms open wide, the
+    /// top-down deck at half the screen width (1.0's "Wide"). Mirrors
+    /// `framingSizes.wide` in the renderer's scenes.
+    var defaultSize: Double { self == .turntable ? 0.37 : 0 }
 }
 
-enum Framing: String, CaseIterable, Identifiable {
-    case wide, mid, close
+enum MiniStyle: String, CaseIterable, Identifiable {
+    case turntable, record
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .turntable ? "Turntable" : "Record Only" }
 }
 
 enum LabelStyle: String, CaseIterable, Identifiable {
@@ -69,16 +74,16 @@ enum DisplayTarget: String, CaseIterable, Identifiable {
     var title: String { self == .main ? "Main Display" : "All Displays" }
 }
 
+/// Quick size presets for the mini player (its height in points).
 enum MiniSize: String, CaseIterable, Identifiable {
     case small, medium, large
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
-    /// Window height in points; width follows the record's aspect ratio.
-    var height: CGFloat {
+    var height: Double {
         switch self {
         case .small: return 190
-        case .medium: return 260
-        case .large: return 360
+        case .medium: return 280
+        case .large: return 400
         }
     }
 }
@@ -124,21 +129,41 @@ final class Preferences: ObservableObject {
     /// Master switch ("Desktop Artwork" in the original): hides everything.
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: Keys.enabled) } }
     @Published var scene: VinylScene { didSet { defaults.set(scene.rawValue, forKey: Keys.scene) } }
-    @Published var framing: Framing { didSet { defaults.set(framing.rawValue, forKey: Keys.framing) } }
+    /// Size of each desktop scene, 0 (smallest) … 1 (largest), keyed by scene.
+    @Published var sceneSizes: [String: Double] { didSet { defaults.set(sceneSizes, forKey: Keys.sceneSizes) } }
     @Published var showBackground: Bool { didSet { defaults.set(showBackground, forKey: Keys.background) } }
     @Published var displayTarget: DisplayTarget { didSet { defaults.set(displayTarget.rawValue, forKey: Keys.display) } }
     @Published var spinWhenIdle: Bool { didSet { defaults.set(spinWhenIdle, forKey: Keys.idleSpin) } }
 
     @Published var miniAlongside: Bool { didSet { defaults.set(miniAlongside, forKey: Keys.miniAlongside) } }
     @Published var miniLabelStyle: LabelStyle { didSet { defaults.set(miniLabelStyle.rawValue, forKey: Keys.miniLabel) } }
-    @Published var miniShowsTonearm: Bool { didSet { defaults.set(miniShowsTonearm, forKey: Keys.miniTonearm) } }
-    @Published var miniSize: MiniSize { didSet { defaults.set(miniSize.rawValue, forKey: Keys.miniSize) } }
+    @Published var miniStyle: MiniStyle { didSet { defaults.set(miniStyle.rawValue, forKey: Keys.miniStyle) } }
+    /// Mini player height in points; the width follows the style's aspect ratio.
+    @Published var miniHeight: Double {
+        didSet {
+            // (Assigning inside didSet doesn't re-trigger it.)
+            let clamped = min(max(miniHeight, Self.miniHeightRange.lowerBound), Self.miniHeightRange.upperBound)
+            if clamped != miniHeight { miniHeight = clamped }
+            defaults.set(miniHeight, forKey: Keys.miniHeight)
+        }
+    }
+    static let miniHeightRange: ClosedRange<Double> = 140...720
     @Published var miniFloats: Bool { didSet { defaults.set(miniFloats, forKey: Keys.miniFloats) } }
     @Published var miniOnAllSpaces: Bool { didSet { defaults.set(miniOnAllSpaces, forKey: Keys.miniSpaces) } }
 
     @Published var source: SourcePreference { didSet { defaults.set(source.rawValue, forKey: Keys.source) } }
     @Published var energy: EnergyMode { didSet { defaults.set(energy.rawValue, forKey: Keys.energy) } }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: Keys.dock) } }
+
+    func size(for scene: VinylScene) -> Double {
+        sceneSizes[scene.rawValue] ?? scene.defaultSize
+    }
+
+    /// The selected desktop scene's size (what the Size sliders edit).
+    var desktopSize: Double {
+        get { size(for: scene) }
+        set { sceneSizes[scene.rawValue] = min(max(newValue, 0), 1) }
+    }
 
     var hasLaunchedBefore: Bool {
         get { defaults.bool(forKey: Keys.launched) }
@@ -170,14 +195,34 @@ final class Preferences: ObservableObject {
         ])
         enabled = defaults.bool(forKey: Keys.enabled)
         scene = VinylScene(rawValue: defaults.string(forKey: Keys.scene) ?? "") ?? .listeningRoom
-        framing = Framing(rawValue: defaults.string(forKey: Keys.framing) ?? "") ?? .wide
+        if let saved = defaults.dictionary(forKey: Keys.sceneSizes) {
+            // (`defaults write … -dict` stores the numbers as strings.)
+            sceneSizes = saved.compactMapValues { ($0 as? NSNumber)?.doubleValue ?? Double($0 as? String ?? "") }
+        } else if let framing = defaults.string(forKey: Keys.framing) {
+            // 1.0 stored Wide / Mid / Close; carry it over to the rooms.
+            let room = ["wide": 0.0, "mid": 0.5, "close": 1.0][framing] ?? 0
+            let deck = ["wide": 0.37, "mid": 0.63, "close": 0.93][framing] ?? 0.37
+            sceneSizes = [VinylScene.listeningRoom.rawValue: room, VinylScene.afterHours.rawValue: room,
+                          VinylScene.turntable.rawValue: deck]
+        } else {
+            sceneSizes = [:]
+        }
         showBackground = defaults.bool(forKey: Keys.background)
         displayTarget = DisplayTarget(rawValue: defaults.string(forKey: Keys.display) ?? "") ?? .main
         spinWhenIdle = defaults.bool(forKey: Keys.idleSpin)
         miniAlongside = defaults.bool(forKey: Keys.miniAlongside)
         miniLabelStyle = LabelStyle(rawValue: defaults.string(forKey: Keys.miniLabel) ?? "") ?? .label
-        miniShowsTonearm = defaults.bool(forKey: Keys.miniTonearm)
-        miniSize = MiniSize(rawValue: defaults.string(forKey: Keys.miniSize) ?? "") ?? .medium
+        if let style = MiniStyle(rawValue: defaults.string(forKey: Keys.miniStyle) ?? "") {
+            miniStyle = style
+        } else {
+            // 1.0 had a "Tonearm" switch instead.
+            miniStyle = defaults.bool(forKey: Keys.miniTonearm) ? .turntable : .record
+        }
+        if defaults.object(forKey: Keys.miniHeight) != nil {
+            miniHeight = min(max(defaults.double(forKey: Keys.miniHeight), Self.miniHeightRange.lowerBound), Self.miniHeightRange.upperBound)
+        } else {
+            miniHeight = (MiniSize(rawValue: defaults.string(forKey: Keys.miniSize) ?? "") ?? .medium).height
+        }
         miniFloats = defaults.bool(forKey: Keys.miniFloats)
         miniOnAllSpaces = defaults.bool(forKey: Keys.miniSpaces)
         source = SourcePreference(rawValue: defaults.string(forKey: Keys.source) ?? "") ?? .automatic
@@ -188,14 +233,17 @@ final class Preferences: ObservableObject {
     private enum Keys {
         static let enabled = "enabled"
         static let scene = "scene"
-        static let framing = "framing"
+        static let framing = "framing" // 1.0 only; migrated to sceneSizes
+        static let sceneSizes = "sceneSizes"
         static let background = "showBackground"
         static let display = "displayTarget"
         static let idleSpin = "spinWhenIdle"
         static let miniAlongside = "miniAlongside"
         static let miniLabel = "miniLabelStyle"
-        static let miniTonearm = "miniShowsTonearm"
-        static let miniSize = "miniSize"
+        static let miniTonearm = "miniShowsTonearm" // 1.0 only; migrated to miniStyle
+        static let miniSize = "miniSize" // 1.0 only; migrated to miniHeight
+        static let miniStyle = "miniStyle"
+        static let miniHeight = "miniHeight"
         static let miniFloats = "miniFloats"
         static let miniSpaces = "miniOnAllSpaces"
         static let miniOrigin = "miniOrigin"

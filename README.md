@@ -24,7 +24,7 @@ API key.
 | **Listening Room**: golden afternoon sun through a window, with shadows from a plant moving gently across the wall. | ![Listening Room](docs/images/listening-room.jpg) |
 | **After Hours**: the same desk late at night, lit by a glass lamp and a warm glow behind the print. | ![After Hours](docs/images/after-hours.jpg) |
 | **Turntable**: the classic top-down view of the deck and its sleeve on a sunny desk, striped by window blinds. | ![Turntable](docs/images/turntable.jpg) |
-| **Mini Player**: just the record, floating above your windows. It works like a widget: drag it anywhere, click the record to play or pause, and hover for controls. | ![Mini Player](docs/images/mini-player.jpg) |
+| **Mini Player**: a small turntable (or just the record) floating above your windows. It works like a widget: drag it anywhere, click the record to play or pause, hover for controls, and drag the corner or pinch to resize it. | ![Mini Player](docs/images/mini-player.jpg) |
 
 Turn off the room background and the turntable, sleeves and lamp sit straight
 on your own wallpaper, with real shadows:
@@ -35,11 +35,11 @@ on your own wallpaper, with real shadows:
 
 - **Live album art**: covers show up on the record label, the stand and the sleeve, and change smoothly when the album changes. The previous cover stays up while the next one loads.
 - **Spotify and Apple Music**: the active player is detected automatically. You can also make Vinyl follow just one of them.
-- **A tonearm that follows the song**: it cues onto the record when you press play, moves inward as the track goes on, and lifts when you pause.
+- **A tonearm that follows the song**: press play and it lifts off its rest, swings over the record and lowers into the groove. It moves inward as the track goes on, cues again when you skip or seek, and swings back to its rest when you pause.
 - **Recently played**: up to five of your last albums stacked beside the turntable. The stack is remembered between launches.
-- **Wide, Mid and Close framing** for every desktop scene.
+- **Resizable**: a Size slider for every desktop scene, which zooms the rooms in on the turntable and makes the top-down deck as small or as big as you like.
 - **Transparent mode**: hide the room and keep only the objects on your wallpaper.
-- **Mini player options**: plain label or full picture disc, tonearm on or off, three sizes, keep on top, and show on every Space.
+- **Mini player options**: a small turntable or just the record, plain label or full picture disc, any size from tiny to large, keep on top, and show on every Space.
 - **Multiple displays**: show Vinyl on your main display or on all of them.
 - **Lives in the menu bar**: close the window and Vinyl keeps running. It can also open at login.
 - **Easy on the battery**: drawing stops completely when Vinyl is covered or the display sleeps, and it drops to 30 fps on battery. Reduce Motion is respected.
@@ -89,9 +89,9 @@ You can change this at any time in **System Settings › Privacy & Security › 
 
 ## Using Vinyl
 
-- **Menu bar icon**: what's playing, transport controls, scene picker, framing and quick toggles.
+- **Menu bar icon**: what's playing, transport controls, scene picker, size and quick toggles.
 - **Settings window**: everything else. It opens on first launch, and when you open Vinyl again from Finder or Spotlight while it's running.
-- **Mini player**: drag it anywhere. Click the record to play or pause, hover to see the controls, and right-click for options.
+- **Mini player**: drag it anywhere. Click the record to play or pause, hover to see the controls, drag the bottom-right corner (or pinch on a trackpad) to resize it, and right-click for options.
 - **Nothing running?** Press play (or click the record) and Vinyl opens Spotify, or Music if that's what you use, and starts playing.
 
 ## Build from source
@@ -149,8 +149,8 @@ npm run serve
 ```
 
 Demo mode plays the built-in records. Keys: **space** play/pause · **n** next ·
-**1–4** scenes · **f** framing · **b** background · **l** label/picture disc ·
-**a** tonearm · **s** stop.
+**1–4** scenes · **-** / **=** size · **b** background · **l** label/picture disc ·
+**a** mini: turntable/record only · **s** stop.
 
 `npm run snapshots` renders every scene to `snapshots/` with headless Chromium.
 CI runs this on every push, so pull requests come with previews.

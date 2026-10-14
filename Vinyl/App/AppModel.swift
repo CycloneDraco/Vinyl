@@ -95,10 +95,10 @@ final class AppModel {
         let now = nowPlaying.now
         var state: [String: Any] = [
             "scene": scene.rawValue,
-            "framing": prefs.framing.rawValue,
+            "size": scene.isDesktopScene ? prefs.size(for: scene) : 0,
             "background": prefs.showBackground,
             "labelStyle": mini ? prefs.miniLabelStyle.rawValue : LabelStyle.label.rawValue,
-            "tonearm": mini ? prefs.miniShowsTonearm : true,
+            "miniStyle": prefs.miniStyle.rawValue,
             "idleSpin": prefs.spinWhenIdle,
             "motion": !system.reduceMotion,
             "fps": saver ? 30 : 60,

@@ -3,17 +3,34 @@ import Combine
 import os
 import SwiftUI
 
-/// The floating mini player: a spinning record (and tonearm) with the current
-/// cover, drawn by the same renderer, plus transport controls on hover.
+/// The floating mini player: a small turntable (or just the record) with the
+/// current cover, drawn by the same renderer, plus transport controls on hover.
 ///
 /// - Drag anywhere to move it; click the record to play/pause.
+/// - Drag the bottom-right corner, or pinch, to resize.
 /// - Right-click for options.
 @MainActor
 final class MiniPlayerController: NSObject {
-    /// Content aspect ratio (width / height); mirrors `MINI_BOUNDS*` in mini.js.
-    static func aspect(showsTonearm: Bool) -> CGFloat {
-        let m = 0.15 * 1.08
-        return showsTonearm ? (m + 0.255) / (2 * m) : 1
+    /// Content geometry, mirroring `MINI_BOUNDS` in Renderer/js/scenes/mini.js
+    /// (metres, seen from above, including room for the drop shadow).
+    private struct Layout {
+        let width: Double
+        let height: Double
+        let recordCenterX: Double // from the left edge
+        let recordRadius: Double
+
+        static func of(_ style: MiniStyle) -> Layout {
+            switch style {
+            case .turntable:
+                // 46 × 40 cm deck + 2.5 cm margin; platter 4 cm left of centre.
+                return Layout(width: 0.51, height: 0.45, recordCenterX: 0.255 - 0.04, recordRadius: 0.15)
+            case .record:
+                let side = 2 * 0.15 * 1.08
+                return Layout(width: side, height: side, recordCenterX: side / 2, recordRadius: 0.15)
+            }
+        }
+
+        var aspect: CGFloat { CGFloat(width / height) }
     }
 
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Vinyl", category: "MiniPlayer")
@@ -86,6 +103,9 @@ final class MiniPlayerController: NSObject {
         }
         interaction.onMoved = { [weak self] origin in self?.prefs.miniOrigin = origin }
         interaction.menuProvider = { [weak self] in self?.contextMenu() }
+        interaction.onResize = { [weak self] height, anchor in self?.resize(toHeight: height, anchor: anchor) }
+        interaction.onResizeEnded = { [weak self] in self?.commitResize() }
+        interaction.aspect = { [weak self] in self?.layout.aspect ?? 1 }
         container.addSubview(interaction)
 
         let controls = FirstMouseHostingView(rootView: MiniControlsView(hover: hover))
@@ -118,9 +138,10 @@ final class MiniPlayerController: NSObject {
         if prefs.miniOnAllSpaces { behavior.insert(.canJoinAllSpaces) }
         panel.collectionBehavior = behavior
 
-        // Resize around the centre when size or tonearm changes.
+        // Resize around the centre when the size or style changes elsewhere
+        // (live drag/pinch resizes are already in place).
         let size = contentSize()
-        if panel.frame.size != size {
+        if !isResizing, abs(panel.frame.width - size.width) > 0.5 || abs(panel.frame.height - size.height) > 0.5 {
             let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
             let frame = NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
                                width: size.width, height: size.height)
@@ -131,9 +152,39 @@ final class MiniPlayerController: NSObject {
         layoutControls()
     }
 
-    private func contentSize() -> NSSize {
-        let height = prefs.miniSize.height
-        return NSSize(width: (height * Self.aspect(showsTonearm: prefs.miniShowsTonearm)).rounded(), height: height)
+    private var layout: Layout { Layout.of(prefs.miniStyle) }
+
+    private func contentSize(height: Double? = nil) -> NSSize {
+        let h = height ?? prefs.miniHeight
+        return NSSize(width: (h * layout.aspect).rounded(), height: h.rounded())
+    }
+
+    // MARK: Resizing
+
+    private var isResizing = false
+
+    /// Live resize from the corner grip or a pinch. `anchor` is the point of
+    /// the window (0…1 in each axis, from the bottom-left) that stays put.
+    private func resize(toHeight height: Double, anchor: CGPoint) {
+        guard let panel else { return }
+        isResizing = true
+        let range = Preferences.miniHeightRange
+        let size = contentSize(height: min(max(height, range.lowerBound), range.upperBound))
+        let old = panel.frame
+        let fixed = NSPoint(x: old.minX + old.width * anchor.x, y: old.minY + old.height * anchor.y)
+        let frame = NSRect(x: (fixed.x - size.width * anchor.x).rounded(),
+                           y: (fixed.y - size.height * anchor.y).rounded(),
+                           width: size.width, height: size.height)
+        panel.setFrame(frame, display: true, animate: false)
+        layoutControls()
+    }
+
+    private func commitResize() {
+        guard let panel, isResizing else { return }
+        isResizing = false
+        prefs.miniHeight = Double(panel.frame.height)
+        prefs.miniOrigin = panel.frame.origin
+        clampToScreen()
     }
 
     private func defaultOrigin(for size: NSSize) -> NSPoint {
@@ -159,14 +210,15 @@ final class MiniPlayerController: NSObject {
     /// Centres the control capsule over the lower part of the record.
     private func layoutControls() {
         guard let controls, let panel else { return }
-        hover.compact = prefs.miniSize == .small
         let size = panel.frame.size
+        hover.compact = size.height < 230
         let fitting = controls.fittingSize
-        let recordFraction = prefs.miniShowsTonearm ? (0.162 / (0.162 + 0.255)) : 0.5
-        let centerX = size.width * recordFraction
+        let l = layout
+        let centerX = size.width * (l.recordCenterX / l.width)
+        let centerY = size.height * (0.5 - 0.55 * l.recordRadius / l.height)
         controls.frame = NSRect(
             x: (centerX - fitting.width / 2).rounded(),
-            y: (size.height * 0.2 - fitting.height / 2).rounded(),
+            y: (centerY - fitting.height / 2).rounded(),
             width: fitting.width, height: fitting.height
         )
     }
@@ -201,17 +253,22 @@ final class MiniPlayerController: NSObject {
         menu.addItem(ActionItem("Previous Track") { np.send(.previous) })
         menu.addItem(.separator())
 
+        for style in MiniStyle.allCases {
+            menu.addItem(ActionItem(style.title, checked: prefs.miniStyle == style) { [prefs] in prefs.miniStyle = style })
+        }
         menu.addItem(ActionItem("Picture Disc", checked: prefs.miniLabelStyle == .picture) { [prefs] in
             prefs.miniLabelStyle = prefs.miniLabelStyle == .picture ? .label : .picture
-        })
-        menu.addItem(ActionItem("Show Tonearm", checked: prefs.miniShowsTonearm) { [prefs] in
-            prefs.miniShowsTonearm.toggle()
         })
         let sizeItem = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
         let sizeMenu = NSMenu()
         for size in MiniSize.allCases {
-            sizeMenu.addItem(ActionItem(size.title, checked: prefs.miniSize == size) { [prefs] in prefs.miniSize = size })
+            let current = abs(prefs.miniHeight - size.height) < 1
+            sizeMenu.addItem(ActionItem(size.title, checked: current) { [prefs] in prefs.miniHeight = size.height })
         }
+        sizeMenu.addItem(.separator())
+        let tip = NSMenuItem(title: "Drag the corner or pinch to resize", action: nil, keyEquivalent: "")
+        tip.isEnabled = false
+        sizeMenu.addItem(tip)
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
         menu.addItem(ActionItem("Keep on Top", checked: prefs.miniFloats) { [prefs] in prefs.miniFloats.toggle() })
@@ -247,17 +304,25 @@ final class MiniPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Transparent layer over the record: hover tracking, 1:1 dragging that keeps
-/// the grab offset, click-to-play and the right-click menu.
+/// Transparent layer over the player: hover tracking, 1:1 dragging that keeps
+/// the grab offset, click-to-play, corner-grip and pinch resizing, and the
+/// right-click menu.
 final class MiniInteractionView: NSView {
     var onHoverChanged: ((Bool) -> Void)?
     var onClick: (() -> Void)?
     var onMoved: ((NSPoint) -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    /// New height plus the window point (0…1 from the bottom-left) to keep fixed.
+    var onResize: ((Double, CGPoint) -> Void)?
+    var onResizeEnded: (() -> Void)?
+    var aspect: (() -> CGFloat)?
 
     private var grabOffset: NSPoint?
     private var dragged = false
     private var tracking: NSTrackingArea?
+    private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
+    private var resizeStart: (mouse: NSPoint, height: CGFloat)?
+    private static let gripSize: CGFloat = 22
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -265,23 +330,93 @@ final class MiniInteractionView: NSView {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(rect: bounds,
-                                  options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { onHoverChanged?(true) }
-    override func mouseExited(with event: NSEvent) { onHoverChanged?(false) }
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        onHoverChanged?(false)
+        if resizeStart == nil { NSCursor.arrow.set() }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard resizeStart == nil else { return }
+        if inGrip(convert(event.locationInWindow, from: nil)) {
+            Self.resizeCursor.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
+
+    private func inGrip(_ point: NSPoint) -> Bool {
+        point.x >= bounds.maxX - Self.gripSize && point.y <= bounds.minY + Self.gripSize
+    }
+
+    private static var resizeCursor: NSCursor {
+        if #available(macOS 15.0, *) {
+            return NSCursor.frameResize(position: .bottomRight, directions: .all)
+        }
+        return NSCursor.crosshair
+    }
+
+    /// A small grip in the bottom-right corner while the pointer is over the player.
+    override func draw(_ dirtyRect: NSRect) {
+        guard hovering || resizeStart != nil else { return }
+        let inset: CGFloat = 5
+        let corner = NSPoint(x: bounds.maxX - inset, y: bounds.minY + inset)
+        let backing = NSBezierPath(roundedRect: NSRect(x: corner.x - 16, y: corner.y, width: 16, height: 16),
+                                   xRadius: 4, yRadius: 4)
+        NSColor.black.withAlphaComponent(0.35).setFill()
+        backing.fill()
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        // Two diagonal strokes tucked into the corner.
+        for length: CGFloat in [5, 9] {
+            let line = NSBezierPath()
+            line.lineWidth = 1.4
+            line.lineCapStyle = .round
+            line.move(to: NSPoint(x: corner.x - 4, y: corner.y + 4 + length))
+            line.line(to: NSPoint(x: corner.x - 4 - length, y: corner.y + 4))
+            line.stroke()
+        }
+    }
+
+    override func magnify(with event: NSEvent) {
+        guard let window else { return }
+        onResize?(Double(window.frame.height * (1 + event.magnification)), CGPoint(x: 0.5, y: 0.5))
+        if event.phase == .ended || event.phase == .cancelled { onResizeEnded?() }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         let mouse = NSEvent.mouseLocation
+        if inGrip(convert(event.locationInWindow, from: nil)) {
+            resizeStart = (mouse, window.frame.height)
+            return
+        }
         grabOffset = NSPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
         dragged = false
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let start = resizeStart {
+            // Corner drag keeps the top-left corner fixed; follow whichever
+            // axis the pointer moved further along, with the aspect locked.
+            let mouse = NSEvent.mouseLocation
+            let dx = mouse.x - start.mouse.x
+            let dy = start.mouse.y - mouse.y
+            let ratio = aspect?() ?? 1
+            let grow = abs(dx / ratio) > abs(dy) ? dx / ratio : dy
+            onResize?(Double(start.height + grow), CGPoint(x: 0, y: 1))
+            return
+        }
         guard let window, let grabOffset else { return }
         let mouse = NSEvent.mouseLocation
         let origin = NSPoint(x: mouse.x - grabOffset.x, y: mouse.y - grabOffset.y)
@@ -295,6 +430,12 @@ final class MiniInteractionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if resizeStart != nil {
+            resizeStart = nil
+            onResizeEnded?()
+            needsDisplay = true
+            return
+        }
         defer { grabOffset = nil }
         if dragged {
             if let window { onMoved?(window.frame.origin) }
