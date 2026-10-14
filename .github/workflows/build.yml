@@ -8,17 +8,22 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   app:
     name: macOS app
     runs-on: macos-15
+    permissions:
+      contents: write # only needed to publish releases from v* tags
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Xcode version
-        run: xcodebuild -version
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer \
+            || echo "::warning::Xcode 16.4 not found; using the image default"
+          xcodebuild -version
 
       - name: Build
         run: |
@@ -31,8 +36,10 @@ jobs:
             -destination "generic/platform=macOS" \
             CODE_SIGN_IDENTITY=- \
             ONLY_ACTIVE_ARCH=NO \
-            build 2>&1 | tee build.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/Build/Products/Release/Vinyl.app
+            build > build.log 2>&1 || true
+          grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" build.log || true
+          grep -q '\*\* BUILD SUCCEEDED \*\*' build.log
+          test -x build/Build/Products/Release/Vinyl.app/Contents/MacOS/Vinyl
 
       - name: Show build errors
         if: failure()
@@ -49,40 +56,138 @@ jobs:
 
       - name: Package
         run: |
+          set -euo pipefail
           APP=build/Build/Products/Release/Vinyl.app
-          mkdir -p dist/dmg
+          rm -rf dist && mkdir -p dist/dmg
           ditto -c -k --keepParent "$APP" dist/Vinyl.zip
-          cp -R "$APP" dist/dmg/
+          ditto "$APP" dist/dmg/Vinyl.app
           ln -s /Applications dist/dmg/Applications
-          hdiutil create -volname Vinyl -srcfolder dist/dmg -ov -format UDZO dist/Vinyl.dmg
+          for i in 1 2 3; do
+            sync
+            if hdiutil create -volname Vinyl -srcfolder dist/dmg -ov -format UDZO dist/Vinyl.dmg; then break; fi
+            if [ "$i" -eq 3 ]; then exit 1; fi
+            echo "hdiutil create failed (attempt $i); retrying in 15s"; sleep 15
+          done
+          (cd dist && shasum -a 256 Vinyl.dmg Vinyl.zip | tee SHA256SUMS.txt)
 
-      - uses: actions/upload-artifact@v4
+      # Check what users actually download, not just the build product.
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          hdiutil verify dist/Vinyl.dmg
+          MNT="$RUNNER_TEMP/vinyl-dmg"; mkdir -p "$MNT"
+          hdiutil attach dist/Vinyl.dmg -readonly -nobrowse -noautoopen -mountpoint "$MNT"
+          trap 'hdiutil detach "$MNT" -force >/dev/null 2>&1 || true' EXIT
+          ls -la "$MNT"
+          test "$(ls "$MNT" | sort | xargs)" = "Applications Vinyl.app"
+          test -L "$MNT/Applications"
+          test "$(readlink "$MNT/Applications")" = "/Applications"
+          APP="$MNT/Vinyl.app"; BIN="$APP/Contents/MacOS/Vinyl"; PLIST="$APP/Contents/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          SIG=$(codesign -dv --verbose=4 "$APP" 2>&1); echo "$SIG"
+          grep -q '^Signature=adhoc' <<<"$SIG"
+          grep -E '^CodeDirectory .*flags=' <<<"$SIG"
+          ENT=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)
+          grep -q 'com.apple.security.automation.apple-events' <<<"$ENT"
+          lipo "$BIN" -verify_arch arm64 x86_64
+          test "$(vtool -show-build "$BIN" | awk '/minos/ {print $2}' | sort -u)" = "14.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$PLIST")" = "14.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "io.github.cyclonedraco.vinyl"
+          plutil -extract NSAppleEventsUsageDescription raw "$PLIST"
+          test -f "$APP/Contents/Resources/Renderer/index.html"
+          test -f "$APP/Contents/Resources/Renderer/vendor/three/three.module.min.js"
+          test ! -e "$APP/Contents/MacOS/Vinyl.debug.dylib"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "${GITHUB_REF_NAME#v}"
+          fi
+          spctl --assess --type execute -vv "$APP" 2>&1 \
+            || echo "::notice::spctl rejects the ad-hoc, un-notarized app as expected; users approve it in Privacy & Security"
+          ZX="$RUNNER_TEMP/vinyl-zip"; rm -rf "$ZX"; mkdir -p "$ZX"
+          ditto -x -k dist/Vinyl.zip "$ZX"
+          test "$(ls "$ZX")" = "Vinyl.app"
+          codesign --verify --deep --strict --verbose=2 "$ZX/Vinyl.app"
+          cmp "$ZX/Vinyl.app/Contents/MacOS/Vinyl" "$BIN"
+
+      # The UI smoke test runs the Debug build; this launches the shipped one.
+      - name: Launch packaged app (arm64 + x86_64)
+        run: |
+          set -euo pipefail
+          MNT="$RUNNER_TEMP/vinyl-launch"; DEST="$RUNNER_TEMP/Applications"
+          mkdir -p "$MNT" "$DEST"
+          hdiutil attach dist/Vinyl.dmg -readonly -nobrowse -noautoopen -mountpoint "$MNT"
+          ditto "$MNT/Vinyl.app" "$DEST/Vinyl.app"
+          hdiutil detach "$MNT" || hdiutil detach -force "$MNT"
+          BIN="$DEST/Vinyl.app/Contents/MacOS/Vinyl"
+          launch() {
+            "$@" > "$RUNNER_TEMP/launch.log" 2>&1 &
+            local pid=$!
+            sleep 15
+            if ! kill -0 "$pid" 2>/dev/null; then
+              local rc=0; wait "$pid" || rc=$?
+              echo "::error::Vinyl exited early (status $rc): $*"
+              cat "$RUNNER_TEMP/launch.log"
+              ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | head -5 || true
+              return 1
+            fi
+            echo "Vinyl is running: $*"
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
+          launch "$BIN"
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            launch arch -x86_64 "$BIN"
+          else
+            echo "::warning::Rosetta isn't available on this runner; skipped the x86_64 launch"
+          fi
+          log show --last 5m --style compact \
+            --predicate 'subsystem == "io.github.cyclonedraco.vinyl" AND messageType == error' | tail -20 || true
+
+      - uses: actions/upload-artifact@v6
         with:
           name: Vinyl
           path: |
             dist/Vinyl.zip
             dist/Vinyl.dmg
+            dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Vinyl-dSYM
+          path: build/Build/Products/Release/Vinyl.app.dSYM
+
+      - name: Release metadata
+        id: meta
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          test -s "docs/release-notes/${GITHUB_REF_NAME}.md" \
+            || { echo "::error::docs/release-notes/${GITHUB_REF_NAME}.md is missing or empty"; exit 1; }
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
+          name: Vinyl ${{ steps.meta.outputs.version }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
+          make_latest: true
           files: |
-            dist/Vinyl.zip
             dist/Vinyl.dmg
+            dist/Vinyl.zip
+            dist/SHA256SUMS.txt
 
   renderer:
     name: Renderer previews
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm ci || npm install
       - run: npx playwright install --with-deps chromium
       - run: npm run snapshots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: renderer-previews
           path: snapshots/

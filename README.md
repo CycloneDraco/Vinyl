@@ -47,20 +47,29 @@ on your own wallpaper, with real shadows:
 
 ## Install
 
-1. Download `Vinyl.dmg` from [Releases](https://github.com/CycloneDraco/Vinyl/releases). Until the first release is tagged, open the latest successful run of the [Build workflow](https://github.com/CycloneDraco/Vinyl/actions/workflows/build.yml) and download the **Vinyl** artifact, which contains `Vinyl.dmg` and `Vinyl.zip`. Downloading artifacts requires being signed in to GitHub.
-2. Drag **Vinyl** into **Applications**.
-3. Open it. Community builds aren't notarized by Apple, so the first time, **right-click Vinyl → Open → Open**. If macOS still says the app is damaged or can't be opened, run:
+Download `Vinyl.dmg` from the [latest release](https://github.com/CycloneDraco/Vinyl/releases/latest).
+Requires macOS 14 Sonoma or later; works on Apple silicon and Intel.
+
+Vinyl is ad-hoc signed but not notarized by Apple, so macOS blocks the first
+launch. You need to allow it once per version, including after each update.
+
+1. Open `Vinyl.dmg`, drag **Vinyl** into **Applications**, then open Vinyl from **Applications** rather than from the disk image.
+2. **macOS 15 Sequoia, 26 Tahoe or later:** when macOS says *"Vinyl" Not Opened*, click **Done**, not Move to Trash. Open **System Settings → Privacy & Security** and scroll down to **Security**. Next to *"Vinyl" was blocked to protect your Mac*, click **Open Anyway**, click **Open Anyway** again in the warning that follows, then enter your password and click **OK**. This needs an administrator, so on a standard account enter an admin's name and password. The button is only there for about an hour after the blocked launch, so if you don't see it, try opening Vinyl again. Right-click → Open no longer gets around the block on these versions.
+3. **macOS 14 Sonoma:** in Finder, Control-click (or right-click) **Vinyl** in Applications, choose **Open**, then click **Open**. The **Open Anyway** button in Privacy & Security also works.
+4. If macOS says Vinyl "is damaged", don't bypass it. Delete Vinyl and download `Vinyl.dmg` again from the Releases page. If a fresh copy is still blocked and no **Open Anyway** button appears, run this in Terminal and then open Vinyl again. It skips macOS's first-launch malware check, so only do it for a copy from the Releases page.
    ```sh
    xattr -dr com.apple.quarantine /Applications/Vinyl.app
    ```
 
-Requires macOS 14 Sonoma or later. Works on both Apple silicon and Intel.
+Each release also has `SHA256SUMS.txt`; check a download with `shasum -a 256 -c SHA256SUMS.txt`.
+Builds of every commit are also available from the [Build workflow](https://github.com/CycloneDraco/Vinyl/actions/workflows/build.yml) (the **Vinyl** artifact; you have to be signed in to GitHub).
 
 ## Spotify & Apple Music
 
 Vinyl works the moment you press play. Spotify and Music announce every track
-change on your Mac, and Vinyl simply listens. There's no login, nothing is sent
-to Spotify or Apple, and no developer account is needed.
+change to other apps on your Mac, and Vinyl simply listens. Vinyl needs no
+account, API key or developer setup; the only things it looks up online are
+album covers (see [Privacy](#privacy)).
 
 Spotify covers come from Spotify's public embed service. For Apple Music, Vinyl
 uses the exact artwork stored with the playing track. If that isn't available,
@@ -81,7 +90,7 @@ You can change this at any time in **System Settings › Privacy & Security › 
 ## Using Vinyl
 
 - **Menu bar icon**: what's playing, transport controls, scene picker, framing and quick toggles.
-- **Settings window**: everything else. Opening Vinyl from Finder or Spotlight also brings it up.
+- **Settings window**: everything else. It opens on first launch, and when you open Vinyl again from Finder or Spotlight while it's running.
 - **Mini player**: drag it anywhere. Click the record to play or pause, hover to see the controls, and right-click for options.
 - **Nothing running?** Press play (or click the record) and Vinyl opens Spotify, or Music if that's what you use, and starts playing.
 
@@ -152,15 +161,18 @@ Ideas welcome: new rooms, a cassette deck, more turntable models…
 
 Every push runs two workflows:
 
-- **Build**: compiles a universal (Apple silicon + Intel) Release build with Xcode 16, checks the bundle, and uploads `Vinyl.dmg` and `Vinyl.zip`. Pushing a `v*` tag also attaches them to a GitHub Release.
+- **Build**: compiles a universal (Apple silicon + Intel) Release build with Xcode 16.4, then mounts the DMG it produced and checks the app inside (signature, entitlements, architectures, minimum macOS). It launches that packaged app natively and under Rosetta, and uploads `Vinyl.dmg`, `Vinyl.zip` and `SHA256SUMS.txt`. Pushing a `v*` tag publishes them as a GitHub Release, with notes from `docs/release-notes/<tag>.md`.
 - **UI smoke test**: launches the real app on a macOS runner and posts Spotify's playback notifications for real tracks, which exercises the no-login artwork lookup. It then hovers over and clicks the mini player, and uploads screenshots of every scene as the `smoke-screens` artifact.
 
 ## Privacy
 
-Vinyl doesn't collect, store or send any personal data. It reads playback
-notifications locally on your Mac. For artwork, it only contacts Spotify's
-public embed service, Spotify's image CDN and Apple's iTunes Search API. Covers
-are cached in `~/Library/Caches/io.github.cyclonedraco.vinyl/Artwork`.
+Vinyl has no account and no analytics. It reads playback notifications locally
+on your Mac and only goes online to look up artwork: it sends the Spotify track
+ID to Spotify's oEmbed service and, when it needs to search, the artist, album
+and track name to Apple's iTunes Search API, then downloads the cover from
+Spotify's or Apple's image servers. Covers are cached in
+`~/Library/Caches/io.github.cyclonedraco.vinyl/Artwork` (the 300 most recently
+used).
 
 ## Credits
 
