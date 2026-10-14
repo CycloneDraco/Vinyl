@@ -81,8 +81,8 @@ struct ArtworkThumbnail: View {
                 return
             }
             let url = ArtworkStore.shared.url(forFile: file)
-            let loaded = await Task.detached(priority: .userInitiated) { NSImage(contentsOf: url) }.value
-            withAnimation(.easeOut(duration: 0.25)) { image = loaded }
+            let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
+            withAnimation(.easeOut(duration: 0.25)) { image = data.flatMap(NSImage.init(data:)) }
         }
     }
 }

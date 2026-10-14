@@ -30,6 +30,7 @@ final class MiniPlayerController: NSObject {
     }
 
     var isVisible: Bool { panel?.isVisible ?? false }
+    var hosts: [RendererHost] { host.map { [$0] } ?? [] }
 
     func update(visible: Bool) {
         if visible {

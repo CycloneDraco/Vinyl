@@ -36,6 +36,9 @@ final class AppModel {
             .store(in: &cancellables)
 
         sync()
+        #if DEBUG
+        scheduleDebugSnapshots()
+        #endif
     }
 
     private func sync() {
@@ -52,6 +55,31 @@ final class AppModel {
         let policy: NSApplication.ActivationPolicy = wantsDock ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
     }
+
+    #if DEBUG
+    /// `VINYL_SNAPSHOT_DIR=/path` writes a PNG of every renderer after a few
+    /// seconds. Used by the UI smoke test in CI.
+    private func scheduleDebugSnapshots() {
+        guard let dir = ProcessInfo.processInfo.environment["VINYL_SNAPSHOT_DIR"] else { return }
+        let delay = Double(ProcessInfo.processInfo.environment["VINYL_SNAPSHOT_DELAY"] ?? "") ?? 14
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            let url = URL(fileURLWithPath: dir, isDirectory: true)
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            for (index, host) in (desktop.hosts + mini.hosts).enumerated() {
+                host.webView.takeSnapshot(with: nil) { image, error in
+                    guard let image, let tiff = image.tiffRepresentation,
+                          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+                    else {
+                        NSLog("Vinyl snapshot \(index) failed: \(String(describing: error))")
+                        return
+                    }
+                    try? png.write(to: url.appendingPathComponent("renderer-\(index).png"))
+                }
+            }
+        }
+    }
+    #endif
 
     private var batterySaver: Bool {
         switch prefs.energy {

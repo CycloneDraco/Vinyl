@@ -22,8 +22,9 @@ enum AutomationStatus: Equatable {
 }
 
 /// Runs AppleScript against Spotify / Music on a private serial queue.
-/// NSAppleScript isn't thread-safe, so every script lives and runs on `queue`.
-final class AppleScriptRunner {
+/// NSAppleScript isn't thread-safe, so every script lives and runs on `queue`
+/// (which is also what makes the unchecked Sendable conformance sound).
+final class AppleScriptRunner: @unchecked Sendable {
     static let shared = AppleScriptRunner()
 
     private let queue = DispatchQueue(label: "vinyl.applescript", qos: .userInitiated)

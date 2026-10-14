@@ -1,0 +1,67 @@
+name: UI smoke test
+
+# Launches the real app on a macOS runner, simulates Spotify track changes and
+# captures screenshots of every scene (see the "smoke-screens" artifact).
+on:
+  push:
+    branches: ["claude/**"]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (Debug)
+        run: |
+          set -o pipefail
+          xcodebuild -project Vinyl.xcodeproj -scheme Vinyl -configuration Debug \
+            -derivedDataPath build -destination "generic/platform=macOS" \
+            CODE_SIGN_IDENTITY=- build 2>&1 | tail -5
+
+      - name: Compile notification helper
+        run: swiftc -O tools/ci/post-spotify.swift -o post-spotify
+
+      - name: Run scenes
+        run: |
+          APP=build/Build/Products/Debug/Vinyl.app/Contents/MacOS/Vinyl
+          ID=io.github.cyclonedraco.vinyl
+          mkdir -p shots
+          run_scene() {
+            name=$1; scene=$2; first=$3; extra=$4
+            defaults delete $ID >/dev/null 2>&1 || true
+            defaults write $ID scene -string "$scene"
+            defaults write $ID hasLaunchedBefore -bool "$first"
+            if [ -n "$extra" ]; then eval "$extra"; fi
+            VINYL_SNAPSHOT_DIR="$PWD/shots/$name" VINYL_SNAPSHOT_DELAY=16 "$APP" > "shots/$name.stdout.log" 2>&1 &
+            pid=$!
+            sleep 5
+            ./post-spotify 0VjIjW4GlUZAMYd2vXMi3b "Blinding Lights" "The Weeknd" "After Hours"
+            sleep 3
+            ./post-spotify 3n3Ppam7vgaVa1iaRUc9Lp "Mr. Brightside" "The Killers" "Hot Fuss"
+            sleep 3
+            ./post-spotify 2Fxmhks0bxGSBdJ92vM42m "bad guy" "Billie Eilish" "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?" Playing 90
+            sleep 8
+            screencapture -x "shots/$name-screen.png" || true
+            kill $pid || true
+            sleep 1
+          }
+          run_scene listening-room listening-room true ""
+          run_scene after-hours after-hours true "defaults write $ID framing -string mid"
+          run_scene turntable turntable true ""
+          run_scene transparent listening-room true "defaults write $ID showBackground -bool false"
+          run_scene mini mini false ""
+          ls -R shots
+
+      - name: Collect logs
+        if: always()
+        run: |
+          log show --last 10m --style compact --predicate 'subsystem == "io.github.cyclonedraco.vinyl" OR process == "Vinyl"' > shots/system.log 2>&1 || true
+          tail -60 shots/system.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-screens
+          path: shots/

@@ -33,6 +33,8 @@ final class DesktopSceneManager {
         windows.values.forEach { $0.host.send(state) }
     }
 
+    var hosts: [RendererHost] { windows.values.compactMap(\.host) }
+
     func setSystemPaused(_ paused: Bool) {
         windows.values.forEach { $0.systemPaused = paused }
     }
