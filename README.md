@@ -47,7 +47,9 @@ on your own wallpaper, with real shadows:
 
 ## Install
 
-Download `Vinyl.dmg` from the [latest release](https://github.com/CycloneDraco/Vinyl/releases/latest).
+**[Download Vinyl.dmg](https://github.com/CycloneDraco/Vinyl/releases/latest/download/Vinyl.dmg)** from the
+[latest release](https://github.com/CycloneDraco/Vinyl/releases/latest). Every change is built and
+published there automatically, so the newest build always has a DMG.
 Requires macOS 14 Sonoma or later; works on Apple silicon and Intel.
 
 Vinyl is ad-hoc signed but not notarized by Apple, so macOS blocks the first
@@ -161,7 +163,7 @@ Ideas welcome: new rooms, a cassette deck, more turntable models…
 
 Every push runs two workflows:
 
-- **Build**: compiles a universal (Apple silicon + Intel) Release build with Xcode 16.4, then mounts the DMG it produced and checks the app inside (signature, entitlements, architectures, minimum macOS). It launches that packaged app natively and under Rosetta, and uploads `Vinyl.dmg`, `Vinyl.zip` and `SHA256SUMS.txt`. Pushing a `v*` tag publishes them as a GitHub Release, with notes from `docs/release-notes/<tag>.md`.
+- **Build**: compiles a universal (Apple silicon + Intel) Release build with Xcode 16.4, then mounts the DMG it produced and checks the app inside (signature, entitlements, architectures, minimum macOS). It launches that packaged app natively and under Rosetta, and uploads `Vinyl.dmg`, `Vinyl.zip` and `SHA256SUMS.txt`. Every push to `main` or a `claude/**` branch then publishes them as a GitHub Release ("Vinyl 1.1.0 (build 42)"), keeping the five newest automatic builds. Pushing a `v*` tag, or creating a release on GitHub, attaches them to that release instead. Notes come from `docs/release-notes/v<version>.md`.
 - **UI smoke test**: launches the real app on a macOS runner and posts Spotify's playback notifications for real tracks, which exercises the no-login artwork lookup. It then hovers over and clicks the mini player, and uploads screenshots of every scene as the `smoke-screens` artifact.
 
 ## Privacy

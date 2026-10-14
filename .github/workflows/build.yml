@@ -157,25 +157,54 @@ jobs:
           name: Vinyl-dSYM
           path: build/Build/Products/Release/Vinyl.app.dSYM
 
+      # Every push to main or a claude/** branch publishes a release with the
+      # DMG ("Vinyl 1.1.0 (build 42)"), so there's always one to download.
+      # Pushing a v* tag (or creating a release in the GitHub UI) attaches
+      # the DMG to that release instead.
       - name: Release metadata
         id: meta
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v')
+          || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
         run: |
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
-          if [ ! -s "$NOTES" ]; then
-            # No notes written for this tag: reuse the newest ones.
+          set -euo pipefail
+          PLIST=build/Build/Products/Release/Vinyl.app/Contents/Info.plist
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            NAME="Vinyl ${GITHUB_REF_NAME#v}"
+          else
+            TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+            NAME="Vinyl ${VERSION} (build ${GITHUB_RUN_NUMBER})"
+          fi
+          NOTES=""
+          for f in "docs/release-notes/${TAG}.md" "docs/release-notes/v${VERSION}.md"; do
+            if [ -s "$f" ]; then NOTES="$f"; break; fi
+          done
+          if [ -z "$NOTES" ]; then
             NOTES=$(ls -1 docs/release-notes/v*.md 2>/dev/null | sort -V | tail -1)
-            echo "::warning::docs/release-notes/${GITHUB_REF_NAME}.md not found; using $NOTES"
+            echo "::warning::No release notes for $TAG; using $NOTES"
           fi
           test -s "$NOTES"
-          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+          BODY="$RUNNER_TEMP/release-notes.md"
+          {
+            cat "$NOTES"
+            echo
+            echo "---"
+            echo "Built from ${GITHUB_SHA::7} on \`${GITHUB_REF_NAME}\`. SHA-256 checksums are in \`SHA256SUMS.txt\`."
+          } > "$BODY"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "notes=$BODY" >> "$GITHUB_OUTPUT"
+          echo "Publishing $NAME as $TAG"
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.meta.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
-          name: Vinyl ${{ steps.meta.outputs.version }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.meta.outputs.name }}
           body_path: ${{ steps.meta.outputs.notes }}
           fail_on_unmatched_files: true
           make_latest: true
@@ -183,6 +212,33 @@ jobs:
             dist/Vinyl.dmg
             dist/Vinyl.zip
             dist/SHA256SUMS.txt
+
+      - name: Check the release has the DMG
+        if: steps.meta.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          echo "$ASSETS"
+          grep -qx 'Vinyl.dmg' <<<"$ASSETS"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      # Keep only the newest few automatic builds; releases you make by hand
+      # (any tag without "-build.") are never touched.
+      - name: Prune old automatic builds
+        if: steps.meta.outcome == 'success' && !startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | test("^v[0-9.]+-build\\.[0-9]+$"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+          while read -r tag; do
+            echo "Deleting old build $tag"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          done
 
   renderer:
     name: Renderer previews
