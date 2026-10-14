@@ -152,9 +152,9 @@ export class RoomScene extends BaseScene {
       scene.add(bulb);
       this.bulb = bulb;
       // Warm wash from a second lamp just off-screen to the left.
-      const left = new THREE.SpotLight(0xff8a3c, 2.2, 0, 0.7, 1, 0);
-      left.position.set(-1.9, 0.45, 0.2);
-      left.target.position.set(-1.0, 0.25, -0.56);
+      const left = new THREE.SpotLight(0xff8a3c, 3.2, 0, 0.55, 1, 0);
+      left.position.set(-1.7, 0.32, 0.25);
+      left.target.position.set(-0.75, 0.22, -0.56);
       scene.add(left, left.target);
       // LED strip glow behind the frame
       const halo = new THREE.Mesh(

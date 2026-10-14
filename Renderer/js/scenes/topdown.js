@@ -48,8 +48,9 @@ export class TopDownScene extends BaseScene {
       style: 'silver',
       envMap: ctx.envMap,
       recordReflections: 0.12,
-      recordRoughness: 0.55,
-      recordAnisotropy: 0.6,
+      recordRoughness: 0.9,
+      recordAnisotropy: 0.45,
+      recordSpecular: 0.25,
     }));
     tt.group.position.set(CONTENT_W / 2 - 0.23, 0, 0);
     content.add(tt.group);

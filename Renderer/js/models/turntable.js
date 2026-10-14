@@ -16,6 +16,20 @@ import { texture } from '../assets.js';
 const RPM = 100 / 3;
 const OMEGA = (RPM / 60) * TAU;
 
+// Flat discs lying in XZ: u runs along +X, v along -Z. Explicit tangents keep
+// the anisotropic groove sheen stable; deriving them from screen-space
+// derivatives loses precision on some GPUs when the camera is far away.
+function withFlatTangents(geo) {
+  const count = geo.attributes.position.count;
+  const tangents = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    tangents[i * 4] = 1;
+    tangents[i * 4 + 3] = 1;
+  }
+  geo.setAttribute('tangent', new THREE.BufferAttribute(tangents, 4));
+  return geo;
+}
+
 export function roundedRectShape(w, d, r) {
   const s = new THREE.Shape();
   const x = -w / 2;
@@ -108,7 +122,7 @@ export function createTurntable(options = {}) {
     anisotropyMap: rec.anisotropyMap,
     clearcoat: 0.35,
     clearcoatRoughness: 0.28,
-    specularIntensity: 1,
+    specularIntensity: options.recordSpecular ?? 1,
     ior: 1.55,
     // An explicit envMap lets the record reflect less than the rest of the
     // scene (scene.environmentIntensity would otherwise override this).
@@ -232,8 +246,7 @@ export function createTurntable(options = {}) {
   recordEdge.position.y = recordBaseY + recordThickness / 2;
   spin.add(shadowed(recordEdge, true, false));
 
-  const recordGeo = new THREE.CircleGeometry(RECORD_RADIUS, 160);
-  recordGeo.rotateX(-Math.PI / 2);
+  const recordGeo = withFlatTangents(new THREE.CircleGeometry(RECORD_RADIUS, 160).rotateX(-Math.PI / 2));
   const recordTopMesh = new THREE.Mesh(recordGeo, recordMat);
   recordTopMesh.position.y = recordTop;
   spin.add(shadowed(recordTopMesh));
@@ -271,7 +284,7 @@ export function createTurntable(options = {}) {
 
   if (labelStyle === 'picture') {
     const overlay = new THREE.Mesh(
-      new THREE.CircleGeometry(RECORD_RADIUS, 160).rotateX(-Math.PI / 2),
+      withFlatTangents(new THREE.CircleGeometry(RECORD_RADIUS, 160).rotateX(-Math.PI / 2)),
       new THREE.MeshPhysicalMaterial({
         map: pictureDiscOverlay(),
         envMap: options.envMap || null,
