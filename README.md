@@ -83,6 +83,7 @@ You can change this at any time in **System Settings › Privacy & Security › 
 - **Menu bar icon**: what's playing, transport controls, scene picker, framing and quick toggles.
 - **Settings window**: everything else. Opening Vinyl from Finder or Spotlight also brings it up.
 - **Mini player**: drag it anywhere. Click the record to play or pause, hover to see the controls, and right-click for options.
+- **Nothing running?** Press play (or click the record) and Vinyl opens Spotify, or Music if that's what you use, and starts playing.
 
 ## Build from source
 

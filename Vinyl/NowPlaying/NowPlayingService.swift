@@ -102,8 +102,10 @@ final class NowPlayingService: ObservableObject {
 
     func send(_ command: PlayerCommand) {
         log.notice("command \(String(describing: command), privacy: .public)")
-        let source = activeSource ?? PlayerSource.allCases.first { isRunning($0) }
-        guard let source, let player = players[source], player.isRunning else {
+        // The followed player if it's running, otherwise whichever one is.
+        let candidates = [activeSource].compactMap { $0 } + PlayerSource.allCases
+        let source = candidates.first { isRunning($0) }
+        guard let source, let player = players[source] else {
             // Nothing running: pressing play opens your player and starts it.
             if command == .playPause { launchAndPlay() }
             return
