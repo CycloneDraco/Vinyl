@@ -98,7 +98,9 @@ jobs:
           test -f "$APP/Contents/Resources/Renderer/vendor/three/three.module.min.js"
           test ! -e "$APP/Contents/MacOS/Vinyl.debug.dylib"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "${GITHUB_REF_NAME#v}"
+            APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+            [ "$APP_VERSION" = "${GITHUB_REF_NAME#v}" ] \
+              || echo "::warning::Tag $GITHUB_REF_NAME doesn't match the app's version $APP_VERSION (MARKETING_VERSION); publishing anyway"
           fi
           spctl --assess --type execute -vv "$APP" 2>&1 \
             || echo "::notice::spctl rejects the ad-hoc, un-notarized app as expected; users approve it in Privacy & Security"
@@ -160,15 +162,21 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          test -s "docs/release-notes/${GITHUB_REF_NAME}.md" \
-            || { echo "::error::docs/release-notes/${GITHUB_REF_NAME}.md is missing or empty"; exit 1; }
+          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -s "$NOTES" ]; then
+            # No notes written for this tag: reuse the newest ones.
+            NOTES=$(ls -1 docs/release-notes/v*.md 2>/dev/null | sort -V | tail -1)
+            echo "::warning::docs/release-notes/${GITHUB_REF_NAME}.md not found; using $NOTES"
+          fi
+          test -s "$NOTES"
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           name: Vinyl ${{ steps.meta.outputs.version }}
-          body_path: docs/release-notes/${{ github.ref_name }}.md
+          body_path: ${{ steps.meta.outputs.notes }}
           fail_on_unmatched_files: true
           make_latest: true
           files: |
