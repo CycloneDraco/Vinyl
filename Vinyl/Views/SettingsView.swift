@@ -181,6 +181,16 @@ struct SettingsView: View {
             }
             .padding(10)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            if !nowPlaying.permissions.values.contains(.granted) {
+                Label {
+                    Text("Track changes in Spotify and Music already show up here. Connect a player under **Music** to see what's playing at launch and use the play/skip buttons.")
+                } icon: {
+                    Image(systemName: "info.circle")
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, 2)
     }
