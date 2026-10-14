@@ -197,13 +197,21 @@ final class Preferences: ObservableObject {
         scene = VinylScene(rawValue: defaults.string(forKey: Keys.scene) ?? "") ?? .listeningRoom
         if let saved = defaults.dictionary(forKey: Keys.sceneSizes) {
             // (`defaults write … -dict` stores the numbers as strings.)
-            sceneSizes = saved.compactMapValues { ($0 as? NSNumber)?.doubleValue ?? Double($0 as? String ?? "") }
+            sceneSizes = saved.compactMapValues { value -> Double? in
+                if let number = value as? NSNumber { return number.doubleValue }
+                return (value as? String).flatMap { Double($0) }
+            }
         } else if let framing = defaults.string(forKey: Keys.framing) {
-            // 1.0 stored Wide / Mid / Close; carry it over to the rooms.
-            let room = ["wide": 0.0, "mid": 0.5, "close": 1.0][framing] ?? 0
-            let deck = ["wide": 0.37, "mid": 0.63, "close": 0.93][framing] ?? 0.37
-            sceneSizes = [VinylScene.listeningRoom.rawValue: room, VinylScene.afterHours.rawValue: room,
-                          VinylScene.turntable.rawValue: deck]
+            // 1.0 stored Wide / Mid / Close; carry it over to the matching sizes.
+            let roomSizes: [String: Double] = ["wide": 0, "mid": 0.5, "close": 1]
+            let deckSizes: [String: Double] = ["wide": 0.37, "mid": 0.63, "close": 0.93]
+            let room: Double = roomSizes[framing] ?? 0
+            let deck: Double = deckSizes[framing] ?? VinylScene.turntable.defaultSize
+            var sizes: [String: Double] = [:]
+            sizes[VinylScene.listeningRoom.rawValue] = room
+            sizes[VinylScene.afterHours.rawValue] = room
+            sizes[VinylScene.turntable.rawValue] = deck
+            sceneSizes = sizes
         } else {
             sceneSizes = [:]
         }
