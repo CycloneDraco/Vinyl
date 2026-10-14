@@ -59,6 +59,8 @@ jobs:
 
           # Mini player interaction: hover shows the controls, a click on the
           # record pauses it. The panel sits bottom-right of the main display.
+          defaults delete $ID >/dev/null 2>&1 || true
+          defaults write $ID scene -string mini
           defaults write $ID hasLaunchedBefore -bool true
           "$APP" > shots/mini-interaction.stdout.log 2>&1 &
           pid=$!
